@@ -17,8 +17,18 @@ from src.my_rag.config import (
 )
 from src.my_rag.rag_system import RAGSystem
 
-# Initialise the RAG system (loads Ollama models on start)
+# Global RAG system instance
 rag_system = RAGSystem(LLM_MODELS)
+
+# Track current LLM settings to avoid unnecessary rebuilds
+current_llm_config = {
+    "model": DEFAULT_LLM,
+    "temperature": hyperparams["generation"]["temperature"],
+    "top_k": hyperparams["generation"]["top_k"],
+    "top_p": hyperparams["generation"]["top_p"],
+    "repeat_penalty": hyperparams["generation"]["repeat_penalty"],
+    "max_tokens": hyperparams["generation"]["max_tokens"],
+}
 
 # Load custom CSS
 CSS_PATH = os.path.join(os.path.dirname(__file__), "static", "gradio_app.css")
@@ -26,7 +36,47 @@ if os.path.exists(CSS_PATH):
     with open(CSS_PATH, "r", encoding="utf-8") as f:
         custom_css = f.read()
 else:
-    custom_css = ""  # fallback if file not found
+    custom_css = ""
+
+
+def rebuild_llm_if_needed(model, temperature, top_k, top_p, repeat_penalty, max_tokens):
+    """
+    Rebuild the LLM and chain only if parameters have changed.
+    """
+    global current_llm_config
+
+    new_config = {
+        "model": model,
+        "temperature": temperature,
+        "top_k": top_k,
+        "top_p": top_p,
+        "repeat_penalty": repeat_penalty,
+        "max_tokens": max_tokens if max_tokens > 0 else None,
+    }
+
+    # Only rebuild if something changed
+    if new_config != current_llm_config:
+        from langchain_community.llms import Ollama
+
+        params = {
+            "model": model,
+            "temperature": temperature,
+            "top_k": top_k,
+            "top_p": top_p,
+            "repeat_penalty": repeat_penalty,
+        }
+        if new_config["max_tokens"]:
+            params["num_predict"] = new_config["max_tokens"]
+
+        # Update the LLM
+        rag_system.llm = Ollama(**params)
+        rag_system.current_llm_model = model
+
+        # Rebuild the RAG chain with the new LLM
+        rag_system.chain = rag_system._create_rag_chain()  # Must exist in your RAGSystem
+
+        # Update tracking
+        current_llm_config = new_config.copy()
 
 
 def chat_with_docs(
@@ -44,15 +94,14 @@ def chat_with_docs(
     retrieval_k,
 ):
     """
-    Main chat function called on every message or file upload.
+    Main chat function – handles file upload, indexing, LLM updates, and streaming.
     """
     if not message.strip():
         yield history, ""
         return
 
+    # Handle file uploads and re-indexing
     file_paths = [f.name for f in files] if files else []
-
-    # Re-index if new files are uploaded
     if file_paths:
         rag_system.get_or_create_collection(
             embedding_model_name=embedding_model,
@@ -60,13 +109,13 @@ def chat_with_docs(
             vector_db_type=vector_db.lower(),
         )
 
-    # Append user message to history
-    history = history + [[message, ""]] if history else [[message, ""]]
+    # Ensure history is mutable and append user message
+    history = history[:] if history else []
+    history.append([message, ""])
 
-    # IMPORTANT: Update LLM model and parameters dynamically
-    # We rebuild the LLM and chain with new parameters each time
-    rag_system.select_llm_model(
-        model_name=llm_model,
+    # Update LLM only if parameters changed
+    rebuild_llm_if_needed(
+        model=llm_model,
         temperature=temperature,
         top_k=top_k,
         top_p=top_p,
@@ -74,17 +123,17 @@ def chat_with_docs(
         max_tokens=max_tokens if max_tokens > 0 else None,
     )
 
-    # Get retriever with desired k
+    # Get retriever with custom k
     retriever = rag_system.vector_store.as_retriever(search_kwargs={"k": retrieval_k})
 
-    # Build input for chain
-    input_data = {"input": message}  # Common key; adjust if your chain uses "question"
+    # Ensure chain uses the latest retriever (optional: rebuild chain if retriever changes)
+    # If your _create_rag_chain uses self.vector_store, it should already be up-to-date
 
-    # Stream the response
+    input_data = {"input": message}  # Adjust to "question" if your chain expects that
+
     try:
-        chain = rag_system.chain
         accumulated = ""
-        for chunk in chain.stream(input_data):
+        for chunk in rag_system.chain.stream(input_data):
             if isinstance(chunk, dict):
                 text = chunk.get("answer") or chunk.get("output") or chunk.get("response") or ""
             else:
@@ -93,7 +142,7 @@ def chat_with_docs(
             history[-1][1] = accumulated
             yield history, ""
     except Exception as e:
-        error_msg = f"Error during generation: {str(e)}"
+        error_msg = f"Lỗi khi tạo phản hồi: {str(e)}"
         history[-1][1] = error_msg
         yield history, ""
 
@@ -101,19 +150,19 @@ def chat_with_docs(
 
 
 def update_status(files):
-    """Update the status markdown showing uploaded documents."""
+    """Show uploaded document status."""
     if not files:
-        return "<div class='status'>📭 Chưa có tài liệu nào</div>"
+        return "<div class='status'>Chưa có tài liệu nào</div>"
     names = [os.path.basename(f.name) for f in files]
     truncated = ", ".join(names[:4]) + ("..." if len(names) > 4 else "")
-    return f"<div class='status'>📚 Đã tải {len(names)} tài liệu: {truncated}</div>"
+    return f"<div class='status'>Đã tải {len(names)} tài liệu: {truncated}</div>"
 
 
 def create_demo():
     with gr.Blocks(css=custom_css, theme=gr.themes.Soft(), title="RAG Chatbot Pro") as demo:
         gr.HTML(
             """
-            <h1>🤖 RAG Chatbot Pro</h1>
+            <h1>RAG Chatbot Pro</h1>
             <p class='markdown'>Tải lên tài liệu (PDF, DOCX, XLSX, TXT) và hỏi bất kỳ câu gì về nội dung của chúng!</p>
             """
         )
@@ -123,7 +172,7 @@ def create_demo():
                 gr.Markdown("### ⚙️ Cài đặt cơ bản")
 
                 file_upload = gr.File(
-                    label="📂 Tải lên tài liệu",
+                    label="Tải lên tài liệu",
                     file_count="multiple",
                     file_types=[".pdf", ".docx", ".xlsx", ".xls", ".txt"],
                     type="filepath",
@@ -132,22 +181,21 @@ def create_demo():
                 llm_dropdown = gr.Dropdown(
                     choices=LLM_MODELS,
                     value=DEFAULT_LLM,
-                    label="🧠 Model LLM",
-                    info="Đã tự động tải nếu cần",
+                    label="Model LLM",
+                    info="Chọn model Ollama",
                 )
 
                 emb_dropdown = gr.Dropdown(
                     choices=EMBEDDING_MODELS,
                     value=DEFAULT_EMBEDDING,
-                    label="🔍 Embedding Model",
+                    label="Embedding Model",
                     info="Thay đổi sẽ rebuild index",
                 )
 
                 vector_db_dropdown = gr.Dropdown(
                     choices=["chroma", "milvus", "pgvector"],
                     value=VECTOR_DB_DEFAULT,
-                    label="🗄️ Vector Database",
-                    info="Chọn cơ sở dữ liệu vector",
+                    label="Vector Database",
                 )
 
                 gr.Markdown("### ⚙️ Cài đặt nâng cao")
@@ -157,34 +205,34 @@ def create_demo():
                     maximum=hyperparams["retrieval"]["max_k"],
                     value=hyperparams["retrieval"]["default_k"],
                     step=1,
-                    label="🔢 Top K Retrieval (số chunk)",
+                    label="Top K Retrieval (số chunk)",
                 )
 
                 with gr.Accordion("Generation Parameters (Ollama)", open=False):
-                    temperature = gr.Slider(0.0, 2.0, value=hyperparams["generation"]["temperature"], step=0.05, label="🌡️ Temperature")
-                    top_k_slider = gr.Slider(1, 100, value=hyperparams["generation"]["top_k"], step=1, label="🔝 Top K")
-                    top_p = gr.Slider(0.0, 1.0, value=hyperparams["generation"]["top_p"], step=0.01, label="📈 Top P")
-                    repeat_penalty = gr.Slider(0.0, 2.0, value=hyperparams["generation"]["repeat_penalty"], step=0.05, label="🔁 Repeat Penalty")
-                    max_tokens = gr.Number(value=hyperparams["generation"]["max_tokens"], label="📏 Max Tokens (-1 = không giới hạn)")
+                    temperature = gr.Slider(0.0, 2.0, value=hyperparams["generation"]["temperature"], step=0.05, label="Temperature")
+                    top_k_slider = gr.Slider(1, 100, value=hyperparams["generation"]["top_k"], step=1, label="Top K")
+                    top_p = gr.Slider(0.0, 1.0, value=hyperparams["generation"]["top_p"], step=0.01, label="Top P")
+                    repeat_penalty = gr.Slider(0.0, 2.0, value=hyperparams["generation"]["repeat_penalty"], step=0.05, label="Repeat Penalty")
+                    max_tokens = gr.Number(value=hyperparams["generation"]["max_tokens"], label="Max Tokens (-1 = không giới hạn)")
 
-                status = gr.Markdown("<div class='status'>📭 Chưa có tài liệu nào</div>")
+                status = gr.Markdown("<div class='status'>Chưa có tài liệu nào</div>")
 
             with gr.Column(scale=3):
                 chatbot = gr.Chatbot(
                     height=620,
-                    avatar_images=("🤓", "🤖"),
+                    avatar_images=("Người dùng", "Bot"),
                     bubble_full_width=False,
                     show_label=False,
                 )
 
                 with gr.Row():
                     msg = gr.Textbox(
-                        label="💬 Nhập câu hỏi",
+                        label="Nhập câu hỏi",
                         placeholder="Ví dụ: Tóm tắt nội dung chính của tài liệu?",
                         scale=5,
                         container=False,
                     )
-                    send_btn = gr.Button("🚀 Gửi", variant="primary", scale=1)
+                    send_btn = gr.Button("Gửi", variant="primary", scale=1)
 
         # Events
         file_upload.change(update_status, inputs=file_upload, outputs=status)
@@ -227,11 +275,11 @@ def create_demo():
             outputs=[chatbot, msg],
         )
 
-        gr.Markdown("### 💡 Gợi ý câu hỏi")
+        gr.Markdown("### Gợi ý câu hỏi")
         gr.Examples(
             examples=[
                 ["Tóm tắt nội dung chính của tài liệu"],
-                ["Summary documents in English?"],
+                ["Summary the documents in English?"],
                 ["Những điểm chính trong báo cáo là gì?"],
             ],
             inputs=msg,
@@ -242,11 +290,11 @@ def create_demo():
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Launch RAG Chatbot Pro Gradio App")
-    parser.add_argument("--share", action="store_true", help="Create a public share link (e.g., for Colab/Kaggle)")
+    parser.add_argument("--share", action="store_true", help="Create public share link")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
-    parser.add_argument("--port", type=int, default=7860, help="Port to run the server on")
-    parser.add_argument("--server-name", type=str, default="127.0.0.1", help="Server name (use 0.0.0.0 for external access)")
-    parser.add_argument("--auth", nargs=2, metavar=('username', 'password'), help="Enable basic auth: --auth username password")
+    parser.add_argument("--port", type=int, default=7860, help="Port to run on")
+    parser.add_argument("--server-name", type=str, default="127.0.0.1", help="Server name (0.0.0.0 for external)")
+    parser.add_argument("--auth", nargs=2, metavar=('username', 'password'), help="Basic auth: --auth user pass")
     return parser.parse_args()
 
 
@@ -254,9 +302,7 @@ if __name__ == "__main__":
     args = parse_args()
     demo = create_demo()
 
-    auth = None
-    if args.auth:
-        auth = (args.auth[0], args.auth[1])
+    auth = (args.auth[0], args.auth[1]) if args.auth else None
 
     demo.launch(
         share=args.share,
