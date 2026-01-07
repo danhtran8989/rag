@@ -1,4 +1,4 @@
-from langchain_community import PGVector
+from langchain_postgres import PGVector
 from angchain_community.embeddings import HuggingFaceEmbeddings
 from .base import VectorStore
 from sqlalchemy import create_engine

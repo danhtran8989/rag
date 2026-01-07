@@ -24,3 +24,4 @@ pymilvus>=2.4          # for Milvus
 psycopg2-binary        # or asyncpg + sqlalchemy for PGVector
 langchain              # only if using PGVector via LangChain
 langchain-community
+langchain-postgres
