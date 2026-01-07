@@ -126,33 +126,11 @@ def chat_with_docs(
         max_tokens=max_tokens,
     )
 
-    # === CRITICAL FIX HERE ===
-    # Your custom ChromaStore likely has .vectorstore (the real LangChain Chroma instance)
-    # If the attribute name is different (e.g., .db, .vectordb), change it accordingly.
-    # retriever = rag_system.vector_store.vectorstore.as_retriever(search_kwargs={"k": retrieval_k})
+    # === FIXED: Use VectorStore interface directly (ChromaStore/MilvusStore/PGVectorStore all implement as_retriever) ===
+    retriever = rag_system.vector_store.as_retriever(search_kwargs={"k": retrieval_k})
 
-    vector_obj = rag_system.vector_store
-
-    if hasattr(vector_obj, "db"):
-        chroma = vector_obj.db
-    elif hasattr(vector_obj, "vectordb"):
-        chroma = vector_obj.vectordb
-    elif hasattr(vector_obj, "vector_store"):
-        chroma = vector_obj.vector_store
-    elif hasattr(vector_obj, "vectorstore"):
-        chroma = vector_obj.vectorstore
-    else:
-        # Fallback: giả sử chính nó là Chroma instance
-        chroma = vector_obj
-
-    retriever = chroma.as_retriever(search_kwargs={"k": retrieval_k})
-    # # Phổ biến #3
-    # retriever = rag_system.vector_store.vector_store.as_retriever(search_kwargs={"k": retrieval_k})
-
-    # # Nếu chính rag_system.vector_store đã là instance Chroma (không wrapper sâu)
-    # retriever = rag_system.vector_store.as_retriever(search_kwargs={"k": retrieval_k})
-
-    input_data = {"input": message}  # Change to "question" if your chain expects that key
+    # Input key for the chain (change to "question" if your prompt uses that)
+    input_data = {"input": message}
 
     try:
         accumulated = ""
