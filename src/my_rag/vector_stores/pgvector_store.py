@@ -1,5 +1,5 @@
-from langchain.vectorstores import PGVector
-from langchain.embeddings import HuggingFaceEmbeddings
+from langchain_community import PGVector
+from angchain_community.embeddings import HuggingFaceEmbeddings
 from .base import VectorStore
 from sqlalchemy import create_engine
 import os
