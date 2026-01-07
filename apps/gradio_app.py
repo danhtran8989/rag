@@ -4,7 +4,7 @@ import gradio as gr
 import os
 import sys
 
-# Append the current directory to sys.path
+# Append the project root to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.my_rag.config import (
@@ -21,10 +21,13 @@ from src.my_rag.rag_system import RAGSystem
 # Initialise the RAG system (loads Ollama models on start)
 rag_system = RAGSystem(LLM_MODELS)
 
-# Load custom CSS from static file
-CSS_PATH = os.path.join(os.path.dirname(__file__), "gradio_app", "static", "gradio_app.css")
-with open(CSS_PATH, "r", encoding="utf-8") as f:
-    custom_css = f.read()
+# Load custom CSS
+CSS_PATH = os.path.join(os.path.dirname(__file__), "static", "gradio_app.css")
+if os.path.exists(CSS_PATH):
+    with open(CSS_PATH, "r", encoding="utf-8") as f:
+        custom_css = f.read()
+else:
+    custom_css = ""  # fallback if file not found
 
 
 def chat_with_docs(
@@ -44,9 +47,13 @@ def chat_with_docs(
     """
     Main chat function called on every message or file upload.
     """
+    if not message.strip():
+        yield history, ""
+        return
+
     file_paths = [f.name for f in files] if files else []
 
-    # Re-index if files changed or vector DB / embedding model changed
+    # Re-index if new files are uploaded or settings changed
     if file_paths:
         rag_system.get_or_create_collection(
             embedding_model_name=embedding_model,
@@ -57,21 +64,46 @@ def chat_with_docs(
     # Append user message to history
     history.append([message, ""])
 
-    # Stream the answer
-    for response_chunk in rag_system.generate_answer(
-        query=message,
-        llm_model=llm_model,
+    # Update LLM parameters dynamically (for Ollama)
+    rag_system.update_llm_params(
+        model=llm_model,
         temperature=temperature,
         top_k=top_k,
         top_p=top_p,
         repeat_penalty=repeat_penalty,
-        max_tokens=max_tokens,
-        retrieval_k=retrieval_k,
-    ):
-        history[-1][1] = response_chunk
+        max_tokens=max_tokens if max_tokens > 0 else None,
+    )
+
+    # Stream the response using the chain
+    try:
+        # Most modern RAG systems store the chain in self.chain
+        chain = rag_system.chain  # This should exist
+
+        # Configure retriever
+        retriever = rag_system.vector_store.as_retriever(search_kwargs={"k": retrieval_k})
+
+        # Input format depends on your chain — common ones:
+        input_data = {"input": message}  # Try this first (LangGraph / LCEL style)
+        # Alternative: {"question": message}  # for RetrievalQA style
+
+        accumulated = ""
+        for chunk in chain.stream(input_data):
+            # Handle different output formats
+            if isinstance(chunk, dict):
+                text = chunk.get("answer") or chunk.get("output") or chunk.get("response") or ""
+            else:
+                text = str(chunk)
+
+            accumulated += text
+            history[-1][1] = accumulated
+            yield history, ""
+
+    except Exception as e:
+        error_msg = f"Error during generation: {str(e)}"
+        history[-1][1] = error_msg
         yield history, ""
 
-    # Final yield to clear the textbox
+    # Final clear textbox
     yield history, ""
 
 
@@ -95,7 +127,6 @@ def create_demo():
         )
 
         with gr.Row():
-            # Left column – settings
             with gr.Column(scale=1):
                 gr.Markdown("### ⚙️ Cài đặt cơ bản")
 
@@ -124,7 +155,7 @@ def create_demo():
                     choices=["chroma", "milvus", "pgvector"],
                     value=VECTOR_DB_DEFAULT,
                     label="🗄️ Vector Database",
-                    info="Chọn cơ sở dữ liệu vector (thay đổi sẽ rebuild index)",
+                    info="Chọn cơ sở dữ liệu vector",
                 )
 
                 gr.Markdown("### ⚙️ Cài đặt nâng cao")
@@ -138,21 +169,14 @@ def create_demo():
                 )
 
                 with gr.Accordion("Generation Parameters (Ollama)", open=False):
-                    temperature = gr.Slider(
-                        0.0, 2.0, value=hyperparams["generation"]["temperature"], step=0.05, label="🌡️ Temperature"
-                    )
+                    temperature = gr.Slider(0.0, 2.0, value=hyperparams["generation"]["temperature"], step=0.05, label="🌡️ Temperature")
                     top_k_slider = gr.Slider(1, 100, value=hyperparams["generation"]["top_k"], step=1, label="🔝 Top K")
                     top_p = gr.Slider(0.0, 1.0, value=hyperparams["generation"]["top_p"], step=0.01, label="📈 Top P")
-                    repeat_penalty = gr.Slider(
-                        0.0, 2.0, value=hyperparams["generation"]["repeat_penalty"], step=0.05, label="🔁 Repeat Penalty"
-                    )
-                    max_tokens = gr.Number(
-                        value=hyperparams["generation"]["max_tokens"], label="📏 Max Tokens (-1 = không giới hạn)"
-                    )
+                    repeat_penalty = gr.Slider(0.0, 2.0, value=hyperparams["generation"]["repeat_penalty"], step=0.05, label="🔁 Repeat Penalty")
+                    max_tokens = gr.Number(value=hyperparams["generation"]["max_tokens"], label="📏 Max Tokens (-1 = không giới hạn)")
 
                 status = gr.Markdown("<div class='status'>📭 Chưa có tài liệu nào</div>")
 
-            # Right column – chat interface
             with gr.Column(scale=3):
                 chatbot = gr.Chatbot(
                     height=620,
@@ -216,12 +240,14 @@ def create_demo():
             examples=[
                 ["Tóm tắt nội dung chính của tài liệu"],
                 ["Summary documents in English?"],
+                ["Những điểm chính trong báo cáo là gì?"],
             ],
             inputs=msg,
         )
 
     return demo
 
+
 if __name__ == "__main__":
     demo = create_demo()
-    demo.launch(debug=True)
+    demo.launch(debug=True, share=False)  # Set share=True for public link on Kaggle/Colab
