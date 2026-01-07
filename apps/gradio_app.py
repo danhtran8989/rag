@@ -27,7 +27,7 @@ current_llm_config = {
     "top_k": hyperparams["generation"]["top_k"],
     "top_p": hyperparams["generation"]["top_p"],
     "repeat_penalty": hyperparams["generation"]["repeat_penalty"],
-    "max_tokens": hyperparams["generation"]["max_tokens"],
+    "max_tokens": hyperparams["generation"]["max_tokens"] if hyperparams["generation"]["max_tokens"] > 0 else None,
 }
 
 # Load custom CSS
@@ -42,8 +42,12 @@ else:
 def rebuild_llm_if_needed(model, temperature, top_k, top_p, repeat_penalty, max_tokens):
     """
     Rebuild the LLM and chain only if parameters have changed.
+    max_tokens: int or None; if <= 0 or None → unlimited (no num_predict)
     """
     global current_llm_config
+
+    # Normalize max_tokens: None or <= 0 means unlimited
+    effective_max_tokens = None if (max_tokens is None or max_tokens <= 0) else int(max_tokens)
 
     new_config = {
         "model": model,
@@ -51,7 +55,7 @@ def rebuild_llm_if_needed(model, temperature, top_k, top_p, repeat_penalty, max_
         "top_k": top_k,
         "top_p": top_p,
         "repeat_penalty": repeat_penalty,
-        "max_tokens": max_tokens if max_tokens > 0 else None,
+        "max_tokens": effective_max_tokens,
     }
 
     # Only rebuild if something changed
@@ -65,15 +69,15 @@ def rebuild_llm_if_needed(model, temperature, top_k, top_p, repeat_penalty, max_
             "top_p": top_p,
             "repeat_penalty": repeat_penalty,
         }
-        if new_config["max_tokens"]:
-            params["num_predict"] = new_config["max_tokens"]
+        if effective_max_tokens is not None:
+            params["num_predict"] = effective_max_tokens
 
         # Update the LLM
         rag_system.llm = Ollama(**params)
         rag_system.current_llm_model = model
 
         # Rebuild the RAG chain with the new LLM
-        rag_system.chain = rag_system._create_rag_chain()  # Must exist in your RAGSystem
+        rag_system.chain = rag_system._create_rag_chain()
 
         # Update tracking
         current_llm_config = new_config.copy()
@@ -120,16 +124,13 @@ def chat_with_docs(
         top_k=top_k,
         top_p=top_p,
         repeat_penalty=repeat_penalty,
-        max_tokens=max_tokens if max_tokens > 0 else None,
+        max_tokens=max_tokens,  # already handled safely in rebuild_llm_if_needed
     )
 
     # Get retriever with custom k
     retriever = rag_system.vector_store.as_retriever(search_kwargs={"k": retrieval_k})
 
-    # Ensure chain uses the latest retriever (optional: rebuild chain if retriever changes)
-    # If your _create_rag_chain uses self.vector_store, it should already be up-to-date
-
-    input_data = {"input": message}  # Adjust to "question" if your chain expects that
+    input_data = {"input": message}  # Change to "question" if your chain expects that key
 
     try:
         accumulated = ""
@@ -162,36 +163,32 @@ def create_demo():
     with gr.Blocks(css=custom_css, theme=gr.themes.Soft(), title="RAG Chatbot Pro") as demo:
         gr.HTML(
             """
-            <h1>RAG Chatbot Pro</h1>
-            <p class='markdown'>Tải lên tài liệu (PDF, DOCX, XLSX, TXT) và hỏi bất kỳ câu gì về nội dung của chúng!</p>
+            <h1 style="text-align: center;">RAG Chatbot Pro</h1>
+            <p class='markdown' style="text-align: center;">Tải lên tài liệu (PDF, DOCX, XLSX, TXT) và hỏi bất kỳ câu gì về nội dung của chúng!</p>
             """
         )
 
         with gr.Row():
             with gr.Column(scale=1):
                 gr.Markdown("### ⚙️ Cài đặt cơ bản")
-
                 file_upload = gr.File(
                     label="Tải lên tài liệu",
                     file_count="multiple",
                     file_types=[".pdf", ".docx", ".xlsx", ".xls", ".txt"],
                     type="filepath",
                 )
-
                 llm_dropdown = gr.Dropdown(
                     choices=LLM_MODELS,
                     value=DEFAULT_LLM,
                     label="Model LLM",
                     info="Chọn model Ollama",
                 )
-
                 emb_dropdown = gr.Dropdown(
                     choices=EMBEDDING_MODELS,
                     value=DEFAULT_EMBEDDING,
                     label="Embedding Model",
                     info="Thay đổi sẽ rebuild index",
                 )
-
                 vector_db_dropdown = gr.Dropdown(
                     choices=["chroma", "milvus", "pgvector"],
                     value=VECTOR_DB_DEFAULT,
@@ -199,7 +196,6 @@ def create_demo():
                 )
 
                 gr.Markdown("### ⚙️ Cài đặt nâng cao")
-
                 retrieval_k = gr.Slider(
                     minimum=hyperparams["retrieval"]["min_k"],
                     maximum=hyperparams["retrieval"]["max_k"],
@@ -213,7 +209,11 @@ def create_demo():
                     top_k_slider = gr.Slider(1, 100, value=hyperparams["generation"]["top_k"], step=1, label="Top K")
                     top_p = gr.Slider(0.0, 1.0, value=hyperparams["generation"]["top_p"], step=0.01, label="Top P")
                     repeat_penalty = gr.Slider(0.0, 2.0, value=hyperparams["generation"]["repeat_penalty"], step=0.05, label="Repeat Penalty")
-                    max_tokens = gr.Number(value=hyperparams["generation"]["max_tokens"], label="Max Tokens (-1 = không giới hạn)")
+                    max_tokens = gr.Number(
+                        value=-1,
+                        label="Max Tokens",
+                        info="-1 hoặc để trống = không giới hạn số token",
+                    )
 
                 status = gr.Markdown("<div class='status'>Chưa có tài liệu nào</div>")
 
@@ -224,7 +224,6 @@ def create_demo():
                     bubble_full_width=False,
                     show_label=False,
                 )
-
                 with gr.Row():
                     msg = gr.Textbox(
                         label="Nhập câu hỏi",
@@ -301,9 +300,7 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
     demo = create_demo()
-
     auth = (args.auth[0], args.auth[1]) if args.auth else None
-
     demo.launch(
         share=args.share,
         debug=args.debug,
