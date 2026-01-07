@@ -10,6 +10,7 @@ from .chunking import chunk_text
 from .utils import ensure_ollama_models
 from .vector_stores import get_vector_store
 import ollama
+import os
 
 class RAGSystem:
     def __init__(self, llm_models: List[str]):
