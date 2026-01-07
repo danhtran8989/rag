@@ -131,8 +131,21 @@ def chat_with_docs(
     # If the attribute name is different (e.g., .db, .vectordb), change it accordingly.
     # retriever = rag_system.vector_store.vectorstore.as_retriever(search_kwargs={"k": retrieval_k})
 
-    retriever = rag_system.vector_store.vectordb.as_retriever(search_kwargs={"k": retrieval_k})
+    vector_obj = rag_system.vector_store
 
+    if hasattr(vector_obj, "db"):
+        chroma = vector_obj.db
+    elif hasattr(vector_obj, "vectordb"):
+        chroma = vector_obj.vectordb
+    elif hasattr(vector_obj, "vector_store"):
+        chroma = vector_obj.vector_store
+    elif hasattr(vector_obj, "vectorstore"):
+        chroma = vector_obj.vectorstore
+    else:
+        # Fallback: giả sử chính nó là Chroma instance
+        chroma = vector_obj
+
+    retriever = chroma.as_retriever(search_kwargs={"k": retrieval_k})
     # # Phổ biến #3
     # retriever = rag_system.vector_store.vector_store.as_retriever(search_kwargs={"k": retrieval_k})
 
