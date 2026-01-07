@@ -1,5 +1,4 @@
 # apps/gradio_app.py
-
 import gradio as gr
 import os
 import sys
@@ -16,7 +15,6 @@ from src.my_rag.config import (
     hyperparams,
     VECTOR_DB_DEFAULT,
 )
-
 from src.my_rag.rag_system import RAGSystem
 
 # Initialise the RAG system (loads Ollama models on start)
@@ -63,11 +61,12 @@ def chat_with_docs(
         )
 
     # Append user message to history
-    history.append([message, ""])
+    history = history + [[message, ""]] if history else [[message, ""]]
 
-    # Update LLM parameters dynamically
-    rag_system.update_llm_params(
-        model=llm_model,
+    # IMPORTANT: Update LLM model and parameters dynamically
+    # We rebuild the LLM and chain with new parameters each time
+    rag_system.select_llm_model(
+        model_name=llm_model,
         temperature=temperature,
         top_k=top_k,
         top_p=top_p,
@@ -75,24 +74,24 @@ def chat_with_docs(
         max_tokens=max_tokens if max_tokens > 0 else None,
     )
 
+    # Get retriever with desired k
+    retriever = rag_system.vector_store.as_retriever(search_kwargs={"k": retrieval_k})
+
+    # Build input for chain
+    input_data = {"input": message}  # Common key; adjust if your chain uses "question"
+
     # Stream the response
     try:
         chain = rag_system.chain
-        retriever = rag_system.vector_store.as_retriever(search_kwargs={"k": retrieval_k})
-
-        input_data = {"input": message}  # Adjust if your chain uses "question" instead
-
         accumulated = ""
         for chunk in chain.stream(input_data):
             if isinstance(chunk, dict):
                 text = chunk.get("answer") or chunk.get("output") or chunk.get("response") or ""
             else:
                 text = str(chunk)
-
             accumulated += text
             history[-1][1] = accumulated
             yield history, ""
-
     except Exception as e:
         error_msg = f"Error during generation: {str(e)}"
         history[-1][1] = error_msg
@@ -105,7 +104,6 @@ def update_status(files):
     """Update the status markdown showing uploaded documents."""
     if not files:
         return "<div class='status'>📭 Chưa có tài liệu nào</div>"
-
     names = [os.path.basename(f.name) for f in files]
     truncated = ", ".join(names[:4]) + ("..." if len(names) > 4 else "")
     return f"<div class='status'>📚 Đã tải {len(names)} tài liệu: {truncated}</div>"
@@ -254,10 +252,8 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
-
     demo = create_demo()
 
-    # Basic auth if provided
     auth = None
     if args.auth:
         auth = (args.auth[0], args.auth[1])
@@ -268,6 +264,4 @@ if __name__ == "__main__":
         server_port=args.port,
         server_name=args.server_name,
         auth=auth,
-        # Optional: prevent threading issues in some environments
-        # inbrowser=True,  # auto-open browser
     )
