@@ -3,6 +3,7 @@
 import gradio as gr
 import os
 import sys
+import argparse
 
 # Append the project root to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -53,7 +54,7 @@ def chat_with_docs(
 
     file_paths = [f.name for f in files] if files else []
 
-    # Re-index if new files are uploaded or settings changed
+    # Re-index if new files are uploaded
     if file_paths:
         rag_system.get_or_create_collection(
             embedding_model_name=embedding_model,
@@ -64,7 +65,7 @@ def chat_with_docs(
     # Append user message to history
     history.append([message, ""])
 
-    # Update LLM parameters dynamically (for Ollama)
+    # Update LLM parameters dynamically
     rag_system.update_llm_params(
         model=llm_model,
         temperature=temperature,
@@ -74,21 +75,15 @@ def chat_with_docs(
         max_tokens=max_tokens if max_tokens > 0 else None,
     )
 
-    # Stream the response using the chain
+    # Stream the response
     try:
-        # Most modern RAG systems store the chain in self.chain
-        chain = rag_system.chain  # This should exist
-
-        # Configure retriever
+        chain = rag_system.chain
         retriever = rag_system.vector_store.as_retriever(search_kwargs={"k": retrieval_k})
 
-        # Input format depends on your chain — common ones:
-        input_data = {"input": message}  # Try this first (LangGraph / LCEL style)
-        # Alternative: {"question": message}  # for RetrievalQA style
+        input_data = {"input": message}  # Adjust if your chain uses "question" instead
 
         accumulated = ""
         for chunk in chain.stream(input_data):
-            # Handle different output formats
             if isinstance(chunk, dict):
                 text = chunk.get("answer") or chunk.get("output") or chunk.get("response") or ""
             else:
@@ -103,7 +98,6 @@ def chat_with_docs(
         history[-1][1] = error_msg
         yield history, ""
 
-    # Final clear textbox
     yield history, ""
 
 
@@ -248,6 +242,32 @@ def create_demo():
     return demo
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Launch RAG Chatbot Pro Gradio App")
+    parser.add_argument("--share", action="store_true", help="Create a public share link (e.g., for Colab/Kaggle)")
+    parser.add_argument("--debug", action="store_true", help="Enable debug mode")
+    parser.add_argument("--port", type=int, default=7860, help="Port to run the server on")
+    parser.add_argument("--server-name", type=str, default="127.0.0.1", help="Server name (use 0.0.0.0 for external access)")
+    parser.add_argument("--auth", nargs=2, metavar=('username', 'password'), help="Enable basic auth: --auth username password")
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
+    args = parse_args()
+
     demo = create_demo()
-    demo.launch(debug=True, share=False)  # Set share=True for public link on Kaggle/Colab
+
+    # Basic auth if provided
+    auth = None
+    if args.auth:
+        auth = (args.auth[0], args.auth[1])
+
+    demo.launch(
+        share=args.share,
+        debug=args.debug,
+        server_port=args.port,
+        server_name=args.server_name,
+        auth=auth,
+        # Optional: prevent threading issues in some environments
+        # inbrowser=True,  # auto-open browser
+    )
