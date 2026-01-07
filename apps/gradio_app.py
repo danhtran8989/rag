@@ -131,7 +131,13 @@ def chat_with_docs(
     # If the attribute name is different (e.g., .db, .vectordb), change it accordingly.
     # retriever = rag_system.vector_store.vectorstore.as_retriever(search_kwargs={"k": retrieval_k})
 
-    retriever = rag_system.vector_store.db.as_retriever(search_kwargs={"k": retrieval_k})
+    retriever = rag_system.vector_store.vectordb.as_retriever(search_kwargs={"k": retrieval_k})
+
+    # # Phổ biến #3
+    # retriever = rag_system.vector_store.vector_store.as_retriever(search_kwargs={"k": retrieval_k})
+
+    # # Nếu chính rag_system.vector_store đã là instance Chroma (không wrapper sâu)
+    # retriever = rag_system.vector_store.as_retriever(search_kwargs={"k": retrieval_k})
 
     input_data = {"input": message}  # Change to "question" if your chain expects that key
 
