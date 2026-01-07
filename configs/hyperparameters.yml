@@ -1,0 +1,20 @@
+chroma:
+  path: "./chroma_db"
+  collection_name: "multi_docs_rag"
+  hnsw_space: "cosine"
+
+chunking:
+  chunk_size: 6000
+  chunk_overlap: 1200
+
+retrieval:
+  default_k: 6
+  min_k: 1
+  max_k: 20
+
+generation:
+  temperature: 0.7
+  top_k: 40
+  top_p: 0.9
+  repeat_penalty: 1.1
+  max_tokens: -1   # -1 means no limit in Ollama

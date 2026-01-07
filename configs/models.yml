@@ -1,0 +1,15 @@
+llm_models:
+  - "gemma3:12b-it-qat"
+  - "qwen3:14b-Q4_K_M"
+  # - "llama4:17b-scout-16e-instruct-q4_K_M"
+  # - "deepseek-r1:14b-qwen-distill-q4_K_M"
+
+default_llm: "gemma3:12b-it-qat"
+
+embedding_models:
+  - "Alibaba-NLP/gte-multilingual-base"
+  - "BAAI/bge-m3"
+  - "all-MiniLM-L6-v2"
+  - "intfloat/multilingual-e5-base"
+
+default_embedding: "Alibaba-NLP/gte-multilingual-base"

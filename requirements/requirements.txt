@@ -1,0 +1,26 @@
+# langchain
+# langchain-community
+# langchain-ollama
+# chromadb
+# pypdf
+# langchain-chroma
+# ollama
+# gradio
+# sentence-transformers
+# pymupdf
+# python-docx
+# openpyxl
+gradio
+ollama
+chromadb
+sentence-transformers
+torch
+PyMuPDF
+python-docx
+openpyxl
+pypdf
+pyyaml
+pymilvus>=2.4          # for Milvus
+psycopg2-binary        # or asyncpg + sqlalchemy for PGVector
+langchain              # only if using PGVector via LangChain
+langchain-community
