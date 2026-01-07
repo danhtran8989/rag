@@ -129,7 +129,9 @@ def chat_with_docs(
     # === CRITICAL FIX HERE ===
     # Your custom ChromaStore likely has .vectorstore (the real LangChain Chroma instance)
     # If the attribute name is different (e.g., .db, .vectordb), change it accordingly.
-    retriever = rag_system.vector_store.vectorstore.as_retriever(search_kwargs={"k": retrieval_k})
+    # retriever = rag_system.vector_store.vectorstore.as_retriever(search_kwargs={"k": retrieval_k})
+
+    retriever = rag_system.vector_store.db.as_retriever(search_kwargs={"k": retrieval_k})
 
     input_data = {"input": message}  # Change to "question" if your chain expects that key
 
