@@ -45,7 +45,6 @@ def rebuild_llm_if_needed(model, temperature, top_k, top_p, repeat_penalty, max_
     max_tokens: int or None; if <= 0 or None → unlimited (no num_predict)
     """
     global current_llm_config
-
     # Normalize max_tokens: None or <= 0 means unlimited
     effective_max_tokens = None if (max_tokens is None or max_tokens <= 0) else int(max_tokens)
 
@@ -124,11 +123,13 @@ def chat_with_docs(
         top_k=top_k,
         top_p=top_p,
         repeat_penalty=repeat_penalty,
-        max_tokens=max_tokens,  # already handled safely in rebuild_llm_if_needed
+        max_tokens=max_tokens,
     )
 
-    # Get retriever with custom k
-    retriever = rag_system.vector_store.as_retriever(search_kwargs={"k": retrieval_k})
+    # === CRITICAL FIX HERE ===
+    # Your custom ChromaStore likely has .vectorstore (the real LangChain Chroma instance)
+    # If the attribute name is different (e.g., .db, .vectordb), change it accordingly.
+    retriever = rag_system.vector_store.vectorstore.as_retriever(search_kwargs={"k": retrieval_k})
 
     input_data = {"input": message}  # Change to "question" if your chain expects that key
 
@@ -300,7 +301,7 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
     demo = create_demo()
-    auth = (args.auth[0], args.auth[1]) if args.auth else None
+    auth = tuple(args.auth) if args.auth else None
     demo.launch(
         share=args.share,
         debug=args.debug,
