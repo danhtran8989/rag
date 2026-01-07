@@ -221,3 +221,7 @@ def create_demo():
         )
 
     return demo
+
+if __name__ == "__main__":
+    demo = create_demo()
+    demo.launch(debug=True)
