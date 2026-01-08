@@ -135,7 +135,9 @@ def create_demo():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=7860)
+    parser.add_argument("--share", action="store_true")
+    parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
-    
+
     demo = create_demo()
-    demo.launch(server_port=args.port)
+    demo.launch(server_port=args.port, share=args.share, debug=args.debug)
