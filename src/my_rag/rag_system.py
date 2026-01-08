@@ -64,7 +64,7 @@ class RAGSystem:
         config = VECTOR_DB_CONFIG[self.store_type]
         self.vector_store = get_vector_store(self.store_type, **config)
 
-        # Tính hash hiện tại của các file được upload
+        # Tính hash của các file hiện tại
         current_hashes: Dict[str, str] = {}
         valid_files = []
         for file_path in (uploaded_files or []):
@@ -73,55 +73,67 @@ class RAGSystem:
                 current_hashes[file_path] = file_hash
                 valid_files.append(file_path)
             else:
-                print(f"⚠️ File không tồn tại (có thể đã bị xóa): {file_path}")
-        print(f"Indexed files: {self.indexed_files}")
-        print(f"Current hashes: {current_hashes}")
-        # Kiểm tra xem có thay đổi nào không
+                print(f"⚠️ File không tồn tại: {file_path}")
+
+        print(f"Indexed files (old): {self.indexed_files}")
+        print(f"Current hashes (new): {current_hashes}")
+
+        # Kiểm tra sự thay đổi
         files_changed = False
 
-        # File mới hoặc thay đổi nội dung
+        # Có file mới hoặc file thay đổi nội dung?
         for fp, new_hash in current_hashes.items():
-            old_hash = self.indexed_files.get(fp)
-            if old_hash != new_hash:
-                print(f"Old hash: {old_hash}, New hash: {new_hash} for file {fp}")
+            if self.indexed_files.get(fp) != new_hash:
                 files_changed = True
-                print(f"📄 File mới hoặc đã thay đổi: {os.path.basename(fp)}")
+                print(f"📄 File mới/thay đổi: {os.path.basename(fp)}")
 
-        # File bị xóa khỏi danh sách upload
-        for old_fp in list(self.indexed_files.keys()):
+        # Có file cũ bị xóa khỏi upload?
+        for old_fp in self.indexed_files:
             if old_fp not in current_hashes:
                 files_changed = True
-                print(f"🗑️ File bị xóa khỏi danh sách: {os.path.basename(old_fp)}")
+                print(f"🗑️ File bị xóa: {os.path.basename(old_fp)}")
 
-        # Nếu collection rỗng hoặc có thay đổi → rebuild toàn bộ
-        if files_changed or self.vector_store.count() == 0:
-            print("files_changed:", files_changed)
-            print("🔄 Phát hiện thay đổi → Xóa collection cũ và tái index...")
+        # Xác định cần rebuild không
+        need_rebuild = files_changed or len(self.indexed_files) == 0
+
+        if need_rebuild:
+            print("🔄 Cần rebuild collection (lần đầu hoặc có thay đổi)")
+            # Luôn delete trước khi tạo mới để đảm bảo sạch
             self.vector_store.delete_collection()
+
+            # Tạo collection mới với embedding function
             self.vector_store.get_or_create_collection(
                 embedding_fn=embedding_fn,
                 collection_name=config["collection_name"]
             )
 
-            chunks, ids, metadatas = [], [], []
-            for file_path in valid_files:
-                filename = os.path.basename(file_path)
-                print(f"📄 Đang xử lý: {filename}")
-                text = extract_text(file_path)
-                for i, chunk in enumerate(chunk_text(text, CHUNK_SIZE, CHUNK_OVERLAP)):
-                    chunk_id = f"{filename}_chunk_{i:04d}"
-                    chunks.append(chunk)
-                    ids.append(chunk_id)
-                    metadatas.append({"source": file_path})  # Lưu full path để dễ debug
+            # Index các file hợp lệ
+            if valid_files:
+                chunks, ids, metadatas = [], [], []
+                for file_path in valid_files:
+                    filename = os.path.basename(file_path)
+                    print(f"📄 Đang xử lý: {filename}")
+                    text = extract_text(file_path)
+                    for i, chunk in enumerate(chunk_text(text, CHUNK_SIZE, CHUNK_OVERLAP)):
+                        chunk_id = f"{filename}_chunk_{i:04d}"
+                        chunks.append(chunk)
+                        ids.append(chunk_id)
+                        metadatas.append({"source": file_path})
 
-            if chunks:
-                self.vector_store.add_documents(chunks, ids, metadatas)
-                print(f"✅ Đã index {len(chunks)} chunks vào {self.store_type.upper()}")
+                if chunks:
+                    self.vector_store.add_documents(chunks, ids, metadatas)
+                    print(f"✅ Đã index {len(chunks)} chunks")
 
-            # Cập nhật trạng thái đã index
+            # Cập nhật trạng thái
             self.indexed_files = current_hashes
         else:
-            print("✅ Không có thay đổi trong tài liệu → Giữ nguyên collection hiện tại.")
+            print("✅ Không có thay đổi → Giữ nguyên collection hiện tại")
+            # Quan trọng: Đảm bảo collection được load (vì có thể chưa có self.collection)
+            if self.vector_store.collection is None:
+                self.vector_store.get_or_create_collection(
+                    embedding_fn=embedding_fn,
+                    collection_name=config["collection_name"]
+                )
 
     def retrieve(self, query: str, k: int = 6) -> List[Tuple[str, float, dict]]:
         if not self.vector_store or self.vector_store.count() == 0:
