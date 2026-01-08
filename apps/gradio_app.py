@@ -31,26 +31,27 @@ if os.path.exists(CSS_PATH):
 def print_retrieved_chunks(query: str, k: int, embedding_model: str):
     """
     Retrieve and print the top-k relevant chunks for debugging.
-    Works with the current vector_store in rag_system.
+    Sử dụng cùng logic với RAGSystem.retrieve() để đảm bảo tương thích.
     """
     try:
-        # Kiểm tra xem vector_store đã được khởi tạo chưa
         if rag_system.vector_store is None or rag_system.vector_store.count() == 0:
             print("No vector store or collection available yet (no documents indexed).")
             return
 
-        # Lấy embedding function hiện tại (đảm bảo đúng model)
+        # Lấy embedding function đúng với model hiện tại
         embedding_fn = rag_system._get_embedding_fn(embedding_model)
 
-        # Embed query
-        query_embedding = embedding_fn([query])[0]
-
-        # Thực hiện query trực tiếp qua vector_store
+        # Dùng chính method query của vector_store như trong retrieve()
+        # Vì retrieve gọi: self.vector_store.query(query, self.embedding_fn, k=k)
         results = rag_system.vector_store.query(
-            query_embeddings=[query_embedding],
-            n_results=k,
-            include=["documents", "metadatas", "distances"]
+            query=query,
+            embedding_fn=embedding_fn,
+            k=k
         )
+
+        if not results or not results.get("documents") or not results["documents"][0]:
+            print("No chunks retrieved for this query.")
+            return
 
         documents = results["documents"][0]
         metadatas = results["metadatas"][0]
