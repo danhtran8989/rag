@@ -83,6 +83,7 @@ class RAGSystem:
         for fp, new_hash in current_hashes.items():
             old_hash = self.indexed_files.get(fp)
             if old_hash != new_hash:
+                print(f"Old hash: {old_hash}, New hash: {new_hash} for file {fp}")
                 files_changed = True
                 print(f"📄 File mới hoặc đã thay đổi: {os.path.basename(fp)}")
 
