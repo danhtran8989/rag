@@ -19,12 +19,12 @@ from .vector_stores import get_vector_store
 
 
 def get_file_hash(file_path: str, chunk_size: int = 8192) -> str:
-    """Tính hash SHA-256 của file để phát hiện thay đổi nội dung."""
-    sha256 = hashlib.sha256()
+    """Tính hash MD5 của file để phát hiện thay đổi nội dung."""
+    md5 = hashlib.md5()
     with open(file_path, "rb") as f:
         for block in iter(lambda: f.read(chunk_size), b""):
-            sha256.update(block)
-    return sha256.hexdigest()
+            md5.update(block)
+    return md5.hexdigest()
 
 
 class RAGSystem:
