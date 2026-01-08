@@ -31,7 +31,7 @@ if os.path.exists(CSS_PATH):
 def print_retrieved_chunks(query: str, k: int, embedding_model: str):
     """
     Retrieve and print the top-k relevant chunks for debugging.
-    Tương thích với ChromaStore.query(query_embeddings=..., n_results=..., include=...)
+    Tương thích hoàn toàn với ChromaStore.query(query_text, embedding_fn, k)
     """
     try:
         if rag_system.vector_store is None:
@@ -42,17 +42,14 @@ def print_retrieved_chunks(query: str, k: int, embedding_model: str):
             print("Collection rỗng — chưa có tài liệu nào được index.")
             return
 
-        # Lấy embedding function đúng với model người dùng chọn
+        # Lấy đúng embedding function theo model người dùng chọn
         embedding_fn = rag_system._get_embedding_fn(embedding_model)
 
-        # Embed query thành vector
-        query_embedding = embedding_fn([query])[0]
-
-        # Gọi query với đúng tham số mà ChromaStore mong đợi
+        # Gọi query ĐÚNG cách mà ChromaStore hỗ trợ
         results = rag_system.vector_store.query(
-            query_embeddings=[query_embedding],
-            n_results=k,
-            include=["documents", "metadatas", "distances"]
+            query_text=query,
+            embedding_fn=embedding_fn,
+            k=k
         )
 
         # Kiểm tra kết quả
@@ -77,12 +74,6 @@ def print_retrieved_chunks(query: str, k: int, embedding_model: str):
             print("-" * 60)
 
         print("=" * 80 + "\n")
-
-    except TypeError as te:
-        print(f"Lỗi TypeError (sai tham số query): {te}")
-        print("→ Có thể ChromaStore.query() không hỗ trợ tham số bạn đang dùng.")
-        import traceback
-        traceback.print_exc()
 
     except Exception as e:
         print(f"Error retrieving chunks: {e}")
