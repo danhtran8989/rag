@@ -31,26 +31,33 @@ if os.path.exists(CSS_PATH):
 def print_retrieved_chunks(query: str, k: int, embedding_model: str):
     """
     Retrieve and print the top-k relevant chunks for debugging.
-    Sử dụng cùng logic với RAGSystem.retrieve() để đảm bảo tương thích.
+    Tương thích với ChromaStore.query(query_embeddings=..., n_results=..., include=...)
     """
     try:
-        if rag_system.vector_store is None or rag_system.vector_store.count() == 0:
-            print("No vector store or collection available yet (no documents indexed).")
+        if rag_system.vector_store is None:
+            print("Vector store chưa được khởi tạo.")
             return
 
-        # Lấy embedding function đúng với model hiện tại
+        if rag_system.vector_store.count() == 0:
+            print("Collection rỗng — chưa có tài liệu nào được index.")
+            return
+
+        # Lấy embedding function đúng với model người dùng chọn
         embedding_fn = rag_system._get_embedding_fn(embedding_model)
 
-        # Dùng chính method query của vector_store như trong retrieve()
-        # Vì retrieve gọi: self.vector_store.query(query, self.embedding_fn, k=k)
+        # Embed query thành vector
+        query_embedding = embedding_fn([query])[0]
+
+        # Gọi query với đúng tham số mà ChromaStore mong đợi
         results = rag_system.vector_store.query(
-            query=query,
-            embedding_fn=embedding_fn,
-            k=k
+            query_embeddings=[query_embedding],
+            n_results=k,
+            include=["documents", "metadatas", "distances"]
         )
 
+        # Kiểm tra kết quả
         if not results or not results.get("documents") or not results["documents"][0]:
-            print("No chunks retrieved for this query.")
+            print("Không tìm thấy chunk nào phù hợp với query này.")
             return
 
         documents = results["documents"][0]
@@ -70,6 +77,12 @@ def print_retrieved_chunks(query: str, k: int, embedding_model: str):
             print("-" * 60)
 
         print("=" * 80 + "\n")
+
+    except TypeError as te:
+        print(f"Lỗi TypeError (sai tham số query): {te}")
+        print("→ Có thể ChromaStore.query() không hỗ trợ tham số bạn đang dùng.")
+        import traceback
+        traceback.print_exc()
 
     except Exception as e:
         print(f"Error retrieving chunks: {e}")
