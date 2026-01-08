@@ -118,7 +118,7 @@ class RAGSystem:
         # Nếu có thay đổi hoặc collection rỗng → rebuild
         if files_changed or self.vector_store.count() == 0:
             print("🔄 Phát hiện thay đổi hoặc collection rỗng → Rebuild toàn bộ...")
-            # self.vector_store.delete_collection()
+            self.vector_store.delete_collection()
             self.vector_store.get_or_create_collection(
                 embedding_fn=embedding_fn,
                 collection_name=config["collection_name"]
