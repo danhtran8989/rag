@@ -31,21 +31,22 @@ if os.path.exists(CSS_PATH):
 def print_retrieved_chunks(query: str, k: int, embedding_model: str):
     """
     Retrieve and print the top-k relevant chunks for debugging.
-    Works with the current collection in rag_system.
+    Works with the current vector_store in rag_system.
     """
     try:
-        # Get the current collection (this depends on your RAGSystem implementation)
-        collection = rag_system.get_current_collection(embedding_model_name=embedding_model)
-
-        if collection is None:
-            print("No collection available yet.")
+        # Kiểm tra xem vector_store đã được khởi tạo chưa
+        if rag_system.vector_store is None or rag_system.vector_store.count() == 0:
+            print("No vector store or collection available yet (no documents indexed).")
             return
 
-        # Embed the query
-        query_embedding = rag_system.get_embedding(query, model_name=embedding_model)
+        # Lấy embedding function hiện tại (đảm bảo đúng model)
+        embedding_fn = rag_system._get_embedding_fn(embedding_model)
 
-        # Perform similarity search
-        results = collection.query(
+        # Embed query
+        query_embedding = embedding_fn([query])[0]
+
+        # Thực hiện query trực tiếp qua vector_store
+        results = rag_system.vector_store.query(
             query_embeddings=[query_embedding],
             n_results=k,
             include=["documents", "metadatas", "distances"]
@@ -62,8 +63,7 @@ def print_retrieved_chunks(query: str, k: int, embedding_model: str):
 
         for i, (doc, meta, dist) in enumerate(zip(documents, metadatas, distances), 1):
             source = meta.get("source", "Unknown source")
-            page = meta.get("page", "N/A")
-            print(f"\nChunk {i} | Distance: {dist:.4f} | Source: {os.path.basename(source)} (page {page})")
+            print(f"\nChunk {i} | Distance: {dist:.4f} | Source: {os.path.basename(source)}")
             print("-" * 60)
             print(doc.strip())
             print("-" * 60)
@@ -72,6 +72,8 @@ def print_retrieved_chunks(query: str, k: int, embedding_model: str):
 
     except Exception as e:
         print(f"Error retrieving chunks: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def chat_with_docs(
