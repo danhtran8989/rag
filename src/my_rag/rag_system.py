@@ -74,7 +74,8 @@ class RAGSystem:
                 valid_files.append(file_path)
             else:
                 print(f"⚠️ File không tồn tại (có thể đã bị xóa): {file_path}")
-
+        print(f"Indexed files: {self.indexed_files}")
+        print(f"Current hashes: {current_hashes}")
         # Kiểm tra xem có thay đổi nào không
         files_changed = False
 
