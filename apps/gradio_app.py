@@ -21,11 +21,58 @@ from src.my_rag.rag_system import RAGSystem
 rag_system = RAGSystem(LLM_MODELS)
 
 # Load custom CSS
-CSS_PATH = os.path.join(os.path.dirname(__file__), "static", "gradio_app.css")
+CSS_PATH = os.path.join(os.path.dirname(__file__), "gradio_app", "static", "gradio_app.css")
 custom_css = ""
 if os.path.exists(CSS_PATH):
     with open(CSS_PATH, "r", encoding="utf-8") as f:
         custom_css = f.read()
+
+
+def print_retrieved_chunks(query: str, k: int, embedding_model: str):
+    """
+    Retrieve and print the top-k relevant chunks for debugging.
+    Works with the current collection in rag_system.
+    """
+    try:
+        # Get the current collection (this depends on your RAGSystem implementation)
+        collection = rag_system.get_current_collection(embedding_model_name=embedding_model)
+
+        if collection is None:
+            print("No collection available yet.")
+            return
+
+        # Embed the query
+        query_embedding = rag_system.get_embedding(query, model_name=embedding_model)
+
+        # Perform similarity search
+        results = collection.query(
+            query_embeddings=[query_embedding],
+            n_results=k,
+            include=["documents", "metadatas", "distances"]
+        )
+
+        documents = results["documents"][0]
+        metadatas = results["metadatas"][0]
+        distances = results["distances"][0]
+
+        print("\n" + "=" * 80)
+        print(f"RETRIEVED CHUNKS FOR QUERY: \"{query}\"")
+        print(f"Embedding model: {embedding_model} | Top K: {k}")
+        print("=" * 80)
+
+        for i, (doc, meta, dist) in enumerate(zip(documents, metadatas, distances), 1):
+            source = meta.get("source", "Unknown source")
+            page = meta.get("page", "N/A")
+            print(f"\nChunk {i} | Distance: {dist:.4f} | Source: {os.path.basename(source)} (page {page})")
+            print("-" * 60)
+            print(doc.strip())
+            print("-" * 60)
+
+        print("=" * 80 + "\n")
+
+    except Exception as e:
+        print(f"Error retrieving chunks: {e}")
+
 
 def chat_with_docs(
     files,
@@ -66,14 +113,20 @@ def chat_with_docs(
         "max_tokens": int(max_tokens) if max_tokens > 0 else None,
     }
 
-    # 4. Stream response using the fixed RAGSystem method
+    # 4. PRINT RETRIEVED CHUNKS BEFORE INFERENCE
+    print_retrieved_chunks(
+        query=message,
+        k=retrieval_k,
+        embedding_model=embedding_model,
+    )
+
+    # 5. Stream the LLM response
     try:
         accumulated_response = ""
-        # Call the new stream_answer method we created in rag_system.py
         for text_chunk in rag_system.stream_answer(
-            query=message, 
-            k=retrieval_k, 
-            model=llm_model, 
+            query=message,
+            k=retrieval_k,
+            model=llm_model,
             params=gen_params
         ):
             accumulated_response += text_chunk
@@ -84,6 +137,7 @@ def chat_with_docs(
         history[-1][1] = error_msg
         yield history, ""
 
+
 def update_status(files):
     if not files:
         return "<div class='status'>Chưa có tài liệu nào</div>"
@@ -91,10 +145,11 @@ def update_status(files):
     truncated = ", ".join(names[:4]) + ("..." if len(names) > 4 else "")
     return f"<div class='status'>Đã tải {len(names)} tài liệu: {truncated}</div>"
 
+
 def create_demo():
     with gr.Blocks(css=custom_css, theme=gr.themes.Soft(), title="RAG Chatbot Pro") as demo:
         gr.HTML("<h1 style='text-align: center;'>RAG Chatbot Pro</h1>")
-        
+
         with gr.Row():
             with gr.Column(scale=1):
                 gr.Markdown("### ⚙️ Cài đặt")
@@ -102,9 +157,9 @@ def create_demo():
                 llm_dropdown = gr.Dropdown(choices=LLM_MODELS, value=DEFAULT_LLM, label="Model LLM")
                 emb_dropdown = gr.Dropdown(choices=EMBEDDING_MODELS, value=DEFAULT_EMBEDDING, label="Embedding")
                 vector_db_dropdown = gr.Dropdown(choices=["chroma", "milvus", "pgvector"], value=VECTOR_DB_DEFAULT, label="Vector DB")
-                
+
                 retrieval_k = gr.Slider(1, 20, value=5, step=1, label="Số lượng chunk (K)")
-                
+
                 with gr.Accordion("Thông số Gen", open=False):
                     temperature = gr.Slider(0.0, 2.0, value=0.7, label="Temperature")
                     top_k_slider = gr.Slider(1, 100, value=40, label="Top K")
@@ -116,21 +171,39 @@ def create_demo():
 
             with gr.Column(scale=3):
                 chatbot = gr.Chatbot(height=600, bubble_full_width=False)
-                msg = gr.Textbox(placeholder="Nhập câu hỏi tại đây...", container=False, scale=7)
-                send_btn = gr.Button("Gửi", variant="primary")
+
+                with gr.Row():
+                    msg = gr.Textbox(
+                        placeholder="Nhập câu hỏi tại đây...",
+                        container=False,
+                        scale=7,
+                        show_label=False
+                    )
+                    send_btn = gr.Button("Gửi", variant="primary")
+
+                gr.Markdown("### 💡 Ví dụ câu hỏi")
+                examples = gr.Examples(
+                    examples=[
+                        ["how to prepare Oracle Application Object Library"],
+                        ["tóm tắt các tài liệu Oracle"],
+                    ],
+                    inputs=msg,
+                    cache_examples=False,
+                )
 
         # Events
         file_upload.change(update_status, inputs=file_upload, outputs=status)
-        
+
         input_args = [
-            file_upload, msg, llm_dropdown, emb_dropdown, vector_db_dropdown, 
+            file_upload, msg, llm_dropdown, emb_dropdown, vector_db_dropdown,
             chatbot, temperature, top_k_slider, top_p, repeat_penalty, max_tokens, retrieval_k
         ]
-        
+
         send_btn.click(chat_with_docs, inputs=input_args, outputs=[chatbot, msg])
         msg.submit(chat_with_docs, inputs=input_args, outputs=[chatbot, msg])
 
     return demo
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
