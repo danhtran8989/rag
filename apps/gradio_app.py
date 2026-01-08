@@ -73,7 +73,7 @@ def print_retrieved_chunks(query: str, k: int, embedding_model: str):
             # print(doc.strip())
             # print("-" * 60)
 
-        print("=" * 80 + "\n")
+        # print("=" * 80 + "\n")
 
     except Exception as e:
         print(f"Error retrieving chunks: {e}")
