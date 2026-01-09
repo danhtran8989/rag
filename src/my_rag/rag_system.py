@@ -394,20 +394,72 @@ class RAGSystem:
             )
         ]
 
-    def build_prompt(self, query: str, context_items: List[Tuple[str, float, dict]]) -> str:
-        context_text = "\n\n".join([
-            f"[Nguồn: {os.path.basename(m['source'])}]: {c}"
-            for c, s, m in context_items
-        ])
-        prompt = f"""Bạn là một trợ lý thông minh và chính xác. Hãy trả lời câu hỏi dựa CHỈ vào thông tin ngữ cảnh dưới đây.
-Nếu không có thông tin liên quan trong ngữ cảnh, hãy trả lời "Tôi không biết" hoặc "Thông tin không có trong tài liệu".
+#     def build_prompt(self, query: str, context_items: List[Tuple[str, float, dict]]) -> str:
+#         context_text = "\n\n".join([
+#             f"[Nguồn: {os.path.basename(m['source'])}]: {c}"
+#             for c, s, m in context_items
+#         ])
+#         prompt = f"""Bạn là một trợ lý thông minh và chính xác. Hãy trả lời câu hỏi dựa CHỈ vào thông tin ngữ cảnh dưới đây.
+# Nếu không có thông tin liên quan trong ngữ cảnh, hãy trả lời "Tôi không biết" hoặc "Thông tin không có trong tài liệu".
 
-NGỮ CẢNH:
-{context_text}
+# NGỮ CẢNH:
+# {context_text}
 
-CÂU HỎI: {query}
-TRẢ LỜI:"""
-        return prompt
+# CÂU HỎI: {query}
+# TRẢ LỜI:"""
+#         return prompt
+
+    def build_prompt(
+        self,
+        query: str,
+        context_items: List[Tuple[str, float, dict]],
+        conversation_history: Optional[List[Dict[str, str]]] = None  # Optional history for multi-turn
+    ) -> str:
+        """
+        Build a properly formatted prompt for Gemma 3 IT models.
+        
+        Args:
+            query: Current user question
+            context_items: List of (chunk_text, score, metadata)
+            conversation_history: Previous messages in OpenAI-style format 
+                                 [{"role": "user"/"assistant", "content": "..."}]
+        """
+        # Build context block with sources
+        context_texts = [
+            f"[Nguồn: {os.path.basename(metadata['source'])}]\n{chunk}"
+            for chunk, score, metadata in context_items
+        ]
+        context_block = "\n\n".join(context_texts)
+
+        # System-like instructions (must be in first user turn for Gemma 3)
+        system_instruction = (
+            "Bạn là một trợ lý thông minh, chính xác và trung thực. "
+            "Hãy trả lời câu hỏi dựa CHỈ vào thông tin trong NGỮ CẢNH dưới đây. "
+            "Trích dẫn nguồn khi sử dụng thông tin từ tài liệu. "
+            "Nếu thông tin không có trong ngữ cảnh, hãy trả lời rõ ràng: "
+            "\"Tôi không biết\" hoặc \"Thông tin không đủ để trả lời\"."
+        )
+
+        # Start building the formatted prompt
+        prompt_parts = []
+
+        # Add conversation history if provided
+        if conversation_history:
+            for msg in conversation_history:
+                if msg["role"] == "user":
+                    prompt_parts.append(f"<start_of_turn>user\n{msg['content']}<end_of_turn>\n")
+                elif msg["role"] == "assistant":
+                    prompt_parts.append(f"<start_of_turn>model\n{msg['content']}<end_of_turn>\n")
+
+        # Add the current turn: combine system instruction + context + query in the user message
+        user_message = f"{system_instruction}\n\nNGỮ CẢNH:\n{context_block}\n\nCÂU HỎI: {query}"
+
+        prompt_parts.append(f"<start_of_turn>user\n{user_message}<end_of_turn>\n")
+        
+        # Crucial: End with model's turn so it starts generating
+        prompt_parts.append("<start_of_turn>model")
+
+        return "".join(prompt_parts)
 
     def stream_answer(
         self,
