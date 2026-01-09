@@ -4,8 +4,8 @@ chroma:
   hnsw_space: "cosine"
 
 chunking:
-  chunk_size: 1024 # 6000
-  chunk_overlap: 200 # 1200
+  chunk_size: 4096 # 6000
+  chunk_overlap: 820 # 1200
 
 retrieval:
   default_k: 6
