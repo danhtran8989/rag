@@ -2,7 +2,7 @@
 default: "chroma"   # options: chroma, milvus, pgvector
 
 chroma:
-  path: "./chroma_db"
+  path: "./vector_db/chroma_db"
   collection_name: "multi_docs_rag"
   hnsw_space: "cosine"
 

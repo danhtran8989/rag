@@ -8,7 +8,7 @@ chunking:
   chunk_overlap: 820 # 1200
 
 retrieval:
-  default_k: 6
+  default_k: 1
   min_k: 1
   max_k: 20
 
