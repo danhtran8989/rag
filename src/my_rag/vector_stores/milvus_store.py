@@ -86,13 +86,13 @@ class MilvusStore(VectorStore):
         uri: str = "./milvus_rag.db",
         collection_name: str = "rag_docs",
         metric_type: str = "COSINE",
-        user: str = None,
-        password: str = None,
+        user: str = "root",
+        password: str = "Milvus",
     ):
         self.client = MilvusClient(
             uri=uri,
-            user=user or "",
-            password=password or ""
+            user=user,
+            password=password
         )
         self.collection_name = collection_name
         self.metric_type = metric_type

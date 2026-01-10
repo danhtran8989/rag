@@ -17,3 +17,6 @@ langchain-community==0.3.31
 # langchain-postgres==0.0.16
 pymilvus[model]==2.6.6
 milvus-lite==2.5.1
+# matplotlib==3.10.8
+# sentence-transformers==5.2.0
+# numpy==2.0.2
