@@ -7,7 +7,7 @@ chroma:
   hnsw_space: "cosine"
 
 milvus:
-  uri: "http://localhost:19530"   # change if using Milvus cluster
+  uri: "./vector_db/milvus_db" # "http://localhost:19530"   # change if using Milvus cluster
   collection_name: "multi_docs_rag"
   # user: "root"                  # uncomment if auth enabled
   # password: "Milvus"            # uncomment if auth enabled
