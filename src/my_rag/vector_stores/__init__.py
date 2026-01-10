@@ -9,7 +9,7 @@ def get_vector_store(store_type: str = "chroma", **kwargs) -> VectorStore:
         return ChromaStore(**kwargs)
     elif store_type == "milvus":
         return MilvusStore(**kwargs)
-    elif store_type == "pgvector":
-        return PGVectorStore(**kwargs)
+    # elif store_type == "pgvector":
+    #     return PGVectorStore(**kwargs)
     else:
         raise ValueError(f"Unsupported vector store: {store_type}")
