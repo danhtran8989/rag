@@ -91,8 +91,8 @@ class MilvusStore(VectorStore):
     ):
         self.client = MilvusClient(
             uri=uri,
-            user=user,
-            password=password
+            # user=user,
+            # password=password
         )
         self.collection_name = collection_name
         self.metric_type = metric_type
