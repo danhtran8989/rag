@@ -80,7 +80,7 @@ from typing import List, Dict, Any, Optional
 from .base import VectorStore
 
 
-class MilvusVectorStore(VectorStore):
+class MilvusStore(VectorStore):
     def __init__(
         self,
         uri: str = "./milvus_rag.db",
