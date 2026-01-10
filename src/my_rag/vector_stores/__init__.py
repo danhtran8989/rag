@@ -1,7 +1,7 @@
 from .base import VectorStore
 from .chroma_store import ChromaStore
 from .milvus_store import MilvusStore
-from .pgvector_store import PGVectorStore
+# from .pgvector_store import PGVectorStore
 
 def get_vector_store(store_type: str = "chroma", **kwargs) -> VectorStore:
     store_type = store_type.lower()
