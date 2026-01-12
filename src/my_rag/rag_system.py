@@ -45,14 +45,13 @@ class RAGSystem:
             if llm_models:
                 ensure_ollama_models(llm_models)
 
-            # Khởi tạo các thuộc tính cơ bản
             self.vector_store = None
             self.embedding_fn = None
             self.current_embedding_model = None
             self.indexed_files: Dict[str, str] = {}  # {file_path: hash}
             self.store_type = VECTOR_DB_DEFAULT
 
-            # Tạo vector_store ngay từ đầu với config mặc định
+            # Khởi tạo vector store với config mặc định
             config = VECTOR_DB_CONFIG[self.store_type]
             self.vector_store = get_vector_store(self.store_type, **config)
 
@@ -79,7 +78,7 @@ class RAGSystem:
     ):
         """Tạo hoặc tái sử dụng collection dựa trên thay đổi file."""
         # Cập nhật store_type nếu có thay đổi
-        if vector_db_type:
+        if vector_db_type and vector_db_type.lower() != self.store_type:
             self.store_type = vector_db_type.lower()
             config = VECTOR_DB_CONFIG[self.store_type]
             self.vector_store = get_vector_store(self.store_type, **config)
@@ -116,14 +115,13 @@ class RAGSystem:
                 files_changed = True
                 print(f"File bị xóa khỏi danh sách: {os.path.basename(old_fp)}")
 
-        # Điều kiện rebuild: lần đầu HOẶC có thay đổi file
         need_rebuild = files_changed or len(self.indexed_files) == 0
 
         if need_rebuild:
             print("Rebuild collection (lần đầu hoặc có thay đổi file)")
             self.vector_store.delete_collection()
 
-            # Tạo collection mới
+            # Tạo/lấy collection mới
             self.vector_store.get_or_create_collection(
                 embedding_fn=embedding_fn,
                 collection_name=config["collection_name"]
@@ -142,15 +140,15 @@ class RAGSystem:
                     metadatas.append({"source": file_path})
 
             if chunks:
-                self.vector_store.add_documents(chunks, ids, metadatas)
+                self.vector_store.add_documents(chunks, ids, metadatas, embedding_fn=embedding_fn)
                 print(f"Đã index {len(chunks)} chunks vào {self.store_type.upper()}")
 
-            # Cập nhật trạng thái
             self.indexed_files = current_hashes.copy()
+
         else:
             print("Không có thay đổi → Giữ nguyên collection hiện tại")
-            # Quan trọng: load lại collection nếu chưa có (do restart kernel hoặc lần đầu không rebuild)
-            if self.vector_store.collection is None:
+            # Đảm bảo collection đã được load (an toàn với Milvus & Chroma)
+            if not getattr(self.vector_store, '_initialized', False):
                 self.vector_store.get_or_create_collection(
                     embedding_fn=embedding_fn,
                     collection_name=config["collection_name"]
@@ -170,6 +168,7 @@ class RAGSystem:
         if not results or not results.get("documents") or not results["documents"][0]:
             return []
 
+        # Chuẩn hóa distance thành similarity (nếu cần)
         return [
             (doc, 1.0 - (dist or 0), meta)
             for doc, dist, meta in zip(
@@ -179,44 +178,18 @@ class RAGSystem:
             )
         ]
 
-#     def build_prompt(self, query: str, context_items: List[Tuple[str, float, dict]]) -> str:
-#         context_text = "\n\n".join([
-#             f"[Nguồn: {os.path.basename(m['source'])}]: {c}"
-#             for c, s, m in context_items
-#         ])
-#         prompt = f"""Bạn là một trợ lý thông minh và chính xác. Hãy trả lời câu hỏi dựa CHỈ vào thông tin ngữ cảnh dưới đây.
-# Nếu không có thông tin liên quan trong ngữ cảnh, hãy trả lời "Tôi không biết" hoặc "Thông tin không có trong tài liệu".
-
-# NGỮ CẢNH:
-# {context_text}
-
-# CÂU HỎI: {query}
-# TRẢ LỜI:"""
-#         return prompt
-
     def build_prompt(
         self,
         query: str,
         context_items: List[Tuple[str, float, dict]],
-        conversation_history: Optional[List[Dict[str, str]]] = None  # Optional history for multi-turn
+        conversation_history: Optional[List[Dict[str, str]]] = None
     ) -> str:
-        """
-        Build a properly formatted prompt for Gemma 3 IT models.
-        
-        Args:
-            query: Current user question
-            context_items: List of (chunk_text, score, metadata)
-            conversation_history: Previous messages in OpenAI-style format 
-                                 [{"role": "user"/"assistant", "content": "..."}]
-        """
-        # Build context block with sources
         context_texts = [
             f"[Nguồn: {os.path.basename(metadata['source'])}]\n{chunk}"
             for chunk, score, metadata in context_items
         ]
         context_block = "\n\n".join(context_texts)
 
-        # System-like instructions (must be in first user turn for Gemma 3)
         system_instruction = (
             "Bạn là một trợ lý thông minh, chính xác và trung thực. "
             "Hãy trả lời câu hỏi dựa CHỈ vào thông tin trong NGỮ CẢNH dưới đây. "
@@ -225,10 +198,8 @@ class RAGSystem:
             "\"Tôi không biết\" hoặc \"Thông tin không đủ để trả lời\"."
         )
 
-        # Start building the formatted prompt
         prompt_parts = []
 
-        # Add conversation history if provided
         if conversation_history:
             for msg in conversation_history:
                 if msg["role"] == "user":
@@ -236,12 +207,8 @@ class RAGSystem:
                 elif msg["role"] == "assistant":
                     prompt_parts.append(f"<start_of_turn>model\n{msg['content']}<end_of_turn>\n")
 
-        # Add the current turn: combine system instruction + context + query in the user message
         user_message = f"{system_instruction}\n\nNGỮ CẢNH:\n{context_block}\n\nCÂU HỎI: {query}"
-
         prompt_parts.append(f"<start_of_turn>user\n{user_message}<end_of_turn>\n")
-        
-        # Crucial: End with model's turn so it starts generating
         prompt_parts.append("<start_of_turn>model")
 
         return "".join(prompt_parts)
