@@ -29,63 +29,63 @@ class MilvusStore(VectorStore):
         self.metric_type = metric_type
         self._dimension: Optional[int] = None
 
-    def get_or_create_collection(
+        def get_or_create_collection(
         self,
-        embedding_fn,                       # callable that takes list[str] → list[list[float]]
+        embedding_fn,
         collection_name: Optional[str] = None
     ):
-        """
-        Create collection if it doesn't exist.
-        Uses modern simplified API (dimension + metric_type directly).
-        """
         if collection_name:
             self.collection_name = collection_name
 
         if self.client.has_collection(self.collection_name):
-            # Get existing dimension
             info = self.client.describe_collection(self.collection_name)
             for field in info.get("fields", []):
                 if field["type"] == str(DataType.FLOAT_VECTOR):
                     self._dimension = field["params"]["dim"]
                     break
             if self._dimension is None:
-                raise RuntimeError("Could not determine vector dimension from existing collection")
+                raise RuntimeError("Could not determine vector dimension")
             
             self.client.load_collection(self.collection_name)
             return self
 
-        # Infer dimension from embedding function
+        # Infer dimension
         dummy_embedding = embedding_fn(["dummy text"])[0]
         self._dimension = len(dummy_embedding)
 
-        # ───────────────────────────────────────────────────────────────
-        # Modern recommended way (2025-2026) - NO schema dictionary!
-        # ───────────────────────────────────────────────────────────────
+        # Create collection (simplified API - recommended)
         self.client.create_collection(
             collection_name=self.collection_name,
             dimension=self._dimension,
             metric_type=self.metric_type,
             primary_field_name="id",
             vector_field_name="vector",
-            auto_id=False,                    # We provide custom string IDs
-            enable_dynamic_field=True,        # Allows extra fields without schema
+            auto_id=False,
+            enable_dynamic_field=True,
+        )
+
+        # ───────────────────────────────────────────────────────────────
+        # Correct index creation (2025-2026 style)
+        # ───────────────────────────────────────────────────────────────
+        index_params = self.client.prepare_index_params()  # ← This returns IndexParams object
+
+        index_params.add_index(
+            field_name="vector",
+            index_type="AUTOINDEX",                        # auto-tunes, very good default
+            metric_type=self.metric_type,
+            # params={}                                    # empty is fine for AUTOINDEX
+            # index_name="vector_idx"                      # optional
+        )
+
+        self.client.create_index(
+            collection_name=self.collection_name,
+            index_params=index_params
         )
         # ───────────────────────────────────────────────────────────────
 
-        # Create strong default index - AUTOINDEX is excellent in recent versions
-        self.client.create_index(
-            collection_name=self.collection_name,
-            field_name="vector",
-            index_params={
-                "index_type": "AUTOINDEX",
-                "metric_type": self.metric_type,
-                "params": {}   # let Milvus auto-tune
-            }
-        )
-
         self.client.load_collection(self.collection_name)
         return self
-
+    
     def add_documents(
         self,
         documents: List[str],
