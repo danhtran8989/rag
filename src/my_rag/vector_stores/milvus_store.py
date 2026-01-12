@@ -175,11 +175,18 @@ class MilvusStore(VectorStore):
             search_params={"metric_type": self.metric_type}
         )[0]
 
+        # return {
+        #     "documents": [hit["entity"].get("text", "") for hit in results],
+        #     "distances": [hit["distance"] for hit in results],
+        #     "metadatas": [{"source": hit["entity"].get("source", "?")} for hit in results],
+        #     "ids": [hit["id"] for hit in results],  # auto-generated int64 ids
+        # }
+
         return {
-            "documents": [hit["entity"].get("text", "") for hit in results],
-            "distances": [hit["distance"] for hit in results],
-            "metadatas": [{"source": hit["entity"].get("source", "?")} for hit in results],
-            "ids": [hit["id"] for hit in results],  # auto-generated int64 ids
+            "documents": [[hit["entity"].get("text", "") for hit in results]],  # ← nested
+            "distances": [[hit["distance"] for hit in results]],               # ← nested
+            "metadatas": [[{"source": hit["entity"].get("source", "?")} for hit in results]],
+            "ids": [[hit["id"] for hit in results]],
         }
 
     def count(self) -> int:
