@@ -1,15 +1,15 @@
 # src/my_rag/vector_stores/milvus_store.py
 from pymilvus import MilvusClient, DataType
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable
 from .base import VectorStore
 
 
 class MilvusStore(VectorStore):
     """
-    Modern Milvus vector store using MilvusClient (2025-2026 recommended style)
-    - Uses simplified create_collection (dimension + metric_type)
-    - Uses IndexParams + prepare_index_params for index creation
-    - Stores text + source + dynamic fields
+    Modern Milvus vector store (pymilvus 2.4+/2.5+ style - Jan 2026)
+    - Simplified collection creation
+    - IndexParams for index
+    - embedding_fn can be stored or passed per-call
     """
 
     def __init__(
@@ -17,6 +17,7 @@ class MilvusStore(VectorStore):
         uri: str = "./milvus_rag.db",
         collection_name: str = "rag_docs",
         metric_type: str = "COSINE",
+        embedding_fn: Optional[Callable[[List[str]], List[List[float]]]] = None,
         user: Optional[str] = None,
         password: Optional[str] = None,
     ):
@@ -27,16 +28,21 @@ class MilvusStore(VectorStore):
         )
         self.collection_name = collection_name
         self.metric_type = metric_type
+        self.embedding_fn = embedding_fn  # ← Can be set here
         self._dimension: Optional[int] = None
-        self._initialized = False  # ← Optional: helps rag_system know if init happened
+        self._initialized = False
 
     def get_or_create_collection(
         self,
-        embedding_fn,  # callable: list[str] → list[list[float]]
+        embedding_fn: Optional[Callable[[List[str]], List[List[float]]]] = None,
         collection_name: Optional[str] = None
     ):
         if collection_name:
             self.collection_name = collection_name
+
+        # Allow overriding embedding_fn here too
+        if embedding_fn is not None:
+            self.embedding_fn = embedding_fn
 
         if self.client.has_collection(self.collection_name):
             info = self.client.describe_collection(self.collection_name)
@@ -45,17 +51,19 @@ class MilvusStore(VectorStore):
                     self._dimension = field["params"].get("dim")
                     break
             if self._dimension is None:
-                raise RuntimeError("Could not detect vector dimension in existing collection")
-            
+                raise RuntimeError("Could not detect vector dimension")
+
             self.client.load_collection(self.collection_name)
             self._initialized = True
             return self
 
+        if self.embedding_fn is None:
+            raise ValueError("embedding_fn required to infer dimension")
+
         # Infer dimension
-        dummy_embedding = embedding_fn(["dummy text"])[0]
+        dummy_embedding = self.embedding_fn(["dummy text"])[0]
         self._dimension = len(dummy_embedding)
 
-        # Create collection - modern simplified API
         self.client.create_collection(
             collection_name=self.collection_name,
             dimension=self._dimension,
@@ -63,18 +71,15 @@ class MilvusStore(VectorStore):
             primary_field_name="id",
             vector_field_name="vector",
             auto_id=False,
-            enable_dynamic_field=True,  # ← allows extra metadata fields
+            enable_dynamic_field=True,
         )
 
-        # Create index - correct 2.4+/2.5+ way
+        # Modern index creation
         index_params = self.client.prepare_index_params()
-
         index_params.add_index(
             field_name="vector",
-            index_type="AUTOINDEX",          # auto-optimizes (great default)
+            index_type="AUTOINDEX",
             metric_type=self.metric_type,
-            # params={}                      # optional for AUTOINDEX
-            # index_name="vector_idx"        # optional
         )
 
         self.client.create_index(
@@ -91,22 +96,23 @@ class MilvusStore(VectorStore):
         documents: List[str],
         ids: List[str],
         metadatas: List[Dict[str, Any]],
-        embedding_fn=None,
+        embedding_fn: Optional[Callable[[List[str]], List[List[float]]]] = None,
     ):
         if not documents:
             return
 
-        if len(documents) != len(ids) != len(metadatas):
-            raise ValueError("documents, ids, metadatas must have same length")
+        if len(documents) != len(ids) or len(documents) != len(metadatas):
+            raise ValueError("Lengths mismatch: documents/ids/metadatas")
 
-        if embedding_fn is None:
-            raise ValueError("embedding_fn required for add_documents")
+        ef = embedding_fn or self.embedding_fn
+        if ef is None:
+            raise ValueError("embedding_fn required (pass it or set in __init__)")
 
-        embeddings = embedding_fn(documents)
+        embeddings = ef(documents)
 
         data = [
             {
-                "id": str(id_),  # VARCHAR PK needs string
+                "id": str(id_),
                 "vector": emb,
                 "text": doc,
                 "source": str(meta.get("source", "unknown"))[:512],
@@ -119,7 +125,7 @@ class MilvusStore(VectorStore):
     def query(
         self,
         query_text: str,
-        embedding_fn,
+        embedding_fn: Callable[[List[str]], List[List[float]]],
         k: int = 6,
         output_fields: Optional[List[str]] = None
     ) -> Dict[str, Any]:
