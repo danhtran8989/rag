@@ -81,10 +81,6 @@ if os.path.exists(CSS_PATH):
 #         traceback.print_exc()
 
 def print_retrieved_chunks(query: str, k: int, embedding_model: str):
-    """
-    Retrieve and print the top-k relevant chunks for debugging.
-    Works with both Chroma (nested lists) and Milvus (flat lists).
-    """
     try:
         if rag_system.vector_store is None:
             print("Vector store chưa được khởi tạo.")
@@ -106,20 +102,20 @@ def print_retrieved_chunks(query: str, k: int, embedding_model: str):
             print("Không tìm thấy chunk nào phù hợp với query này.")
             return
 
-        # ───────────────────────────────────────────────────────────────
-        # Handle both flat (Milvus) and nested (Chroma) formats
-        # ───────────────────────────────────────────────────────────────
         docs = results["documents"]
         dists = results["distances"]
         metas = results["metadatas"]
 
-        # If nested (Chroma-style), take first query result
+        # ───────────────────────────────────────────────────────────────
+        # Normalize to flat lists - more reliable way
+        # ───────────────────────────────────────────────────────────────
         if isinstance(docs, list) and docs and isinstance(docs[0], list):
+            # Chroma style - nested
             docs = docs[0]
-            dists = dists[0] if dists else []
-            metas = metas[0] if metas else []
+            dists = dists[0] if dists and isinstance(dists[0], list) else dists
+            metas = metas[0] if metas and isinstance(metas[0], list) else metas
+        # else: already flat (Milvus, or future stores)
 
-        # Now we have flat lists for both
         if not docs:
             print("Không có kết quả nào.")
             return
@@ -129,6 +125,7 @@ def print_retrieved_chunks(query: str, k: int, embedding_model: str):
         print(f"Embedding model: {embedding_model} | Top K: {k}")
         print("=" * 80)
 
+        # Now we can safely zip
         for i, (doc, dist, meta) in enumerate(zip(docs, dists, metas), 1):
             source = meta.get("source", "Unknown source")
             print(f"\nChunk {i} | Distance: {dist:.4f} | Source: {os.path.basename(source)}")
