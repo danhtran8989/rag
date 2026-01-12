@@ -29,7 +29,7 @@ class MilvusStore(VectorStore):
         self.metric_type = metric_type
         self._dimension: Optional[int] = None
 
-        def get_or_create_collection(
+    def get_or_create_collection(
         self,
         embedding_fn,
         collection_name: Optional[str] = None
