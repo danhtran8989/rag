@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 
 class VectorStore:
-    """Base interface (you probably already have this)"""
+    """Base interface (you probably already have this elsewhere)"""
     def get_or_create_collection(self, *args, **kwargs):
         raise NotImplementedError
 
@@ -20,11 +20,10 @@ class VectorStore:
 
 class MilvusStore(VectorStore):
     """
-    Modern Milvus vector store using MilvusClient (pymilvus 2.4+ / 2.5+ compatible - 2025/2026)
-    - Uses explicit CollectionSchema
+    Modern Milvus vector store using MilvusClient (pymilvus 2.4+ / 2.5+ compatible)
     - Auto-generated int64 primary key ("id")
-    - No need to provide "id" when inserting
-    - Supports dynamic fields for extra metadata
+    - Supports dynamic fields
+    - Robust metadata handling
     """
 
     def __init__(
@@ -48,7 +47,6 @@ class MilvusStore(VectorStore):
         self._initialized = False
 
     def _get_vector_dimension(self) -> int:
-        """Get vector dimension from existing collection or raise error"""
         if not self.client.has_collection(self.collection_name):
             raise RuntimeError(f"Collection {self.collection_name} does not exist yet")
 
@@ -66,64 +64,39 @@ class MilvusStore(VectorStore):
         collection_name: Optional[str] = None,
         dimension: Optional[int] = None,
     ) -> 'MilvusStore':
-        """
-        Create collection if it doesn't exist, or load it if it does.
-        Returns self for chaining.
-        """
         if collection_name:
             self.collection_name = collection_name
 
         if embedding_fn is not None:
             self.embedding_fn = embedding_fn
 
-        # Already exists → just load and get dimension
+        # Already exists → load and get dimension
         if self.client.has_collection(self.collection_name):
-            logger.info(f"Collection '{self.collection_name}' already exists. Loading...")
+            logger.info(f"Collection '{self.collection_name}' exists → loading...")
             self._dimension = self._get_vector_dimension()
             self.client.load_collection(self.collection_name)
             self._initialized = True
             return self
 
-        # Need to create new collection
+        # Create new collection
         if self.embedding_fn is None and dimension is None:
-            raise ValueError("embedding_fn or explicit dimension is required to create collection")
+            raise ValueError("Need embedding_fn or explicit dimension to create collection")
 
-        # Infer dimension if not provided
+        # Infer dimension if needed
         if dimension is None:
-            if self.embedding_fn is None:
-                raise ValueError("embedding_fn required to infer dimension")
-            dummy_embedding = self.embedding_fn(["dummy text for dimension detection"])[0]
+            dummy_embedding = self.embedding_fn(["dummy text"])[0]
             dimension = len(dummy_embedding)
-            logger.info(f"Inferred embedding dimension: {dimension}")
+            logger.info(f"Auto-detected embedding dimension: {dimension}")
 
         self._dimension = dimension
 
-        # ───────────────────────────────────────────────────────────────
-        # Explicit schema - recommended way in 2025/2026
-        # ───────────────────────────────────────────────────────────────
+        # Create explicit schema
         schema = CollectionSchema(
             fields=[
-                FieldSchema(
-                    name="id",
-                    dtype=DataType.INT64,
-                    is_primary=True,
-                    auto_id=True,
-                ),
-                FieldSchema(
-                    name="vector",
-                    dtype=DataType.FLOAT_VECTOR,
-                    dim=self._dimension
-                ),
-                FieldSchema(
-                    name="text",
-                    dtype=DataType.VARCHAR,
-                    max_length=65535
-                ),
-                FieldSchema(
-                    name="source",
-                    dtype=DataType.VARCHAR,
-                    max_length=512
-                ),
+                FieldSchema(name="id", dtype=DataType.INT64, is_primary=True, auto_id=True),
+                FieldSchema(name="vector", dtype=DataType.FLOAT_VECTOR, dim=self._dimension),
+                FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=65535),
+                FieldSchema(name="source", dtype=DataType.VARCHAR, max_length=512),
             ],
             description="RAG documents collection",
             enable_dynamic_field=True
@@ -134,46 +107,54 @@ class MilvusStore(VectorStore):
             schema=schema,
             metric_type=self.metric_type
         )
-        logger.info(f"Created collection '{self.collection_name}' with dim={self._dimension}")
 
-        # Create automatic index (AUTOINDEX is usually good choice in recent versions)
+        # Create index
         index_params = self.client.prepare_index_params()
         index_params.add_index(
             field_name="vector",
             index_type="AUTOINDEX",
             metric_type=self.metric_type,
-            params={"M": 16, "efConstruction": 200}  # optional tuning
+            params={"M": 16, "efConstruction": 200}
         )
-        self.client.create_index(
-            collection_name=self.collection_name,
-            index_params=index_params
-        )
+        self.client.create_index(self.collection_name, index_params)
 
         self.client.load_collection(self.collection_name)
         self._initialized = True
-        logger.info(f"Collection '{self.collection_name}' created, indexed and loaded.")
+        logger.info(f"Created & loaded collection '{self.collection_name}' (dim={self._dimension})")
         return self
 
     def is_ready(self) -> bool:
-        """Check if collection is usable"""
         return (
             self._initialized
             and self.client.has_collection(self.collection_name)
-            and self.client.get_collection_stats(self.collection_name).get("row_count", 0) >= 0
         )
 
     def add_documents(
         self,
         documents: List[str],
-        metadatas: List[Dict[str, Any]],
-        ids: Optional[List[Any]] = None,           # ← ignored for PK, but can be stored in dynamic field
+        metadatas: List[Any],  # Accept Any to handle common mistake gracefully
+        ids: Optional[List[Any]] = None,
         embedding_fn: Optional[Callable[[List[str]], List[List[float]]]] = None,
     ):
         if not documents:
             return
 
+        # ─── Handle common mistake: metadatas as list of strings ───────
+        if metadatas and isinstance(metadatas[0], str):
+            logger.warning(
+                "metadatas is list of strings instead of dicts → "
+                "converting to simple metadata with 'source' field"
+            )
+            metadatas = [{"source": src} for src in metadatas]
+
+        # Now we expect list of dicts
+        if not all(isinstance(m, dict) for m in metadatas):
+            raise ValueError("metadatas must be list of dictionaries (after auto-conversion)")
+
         if len(documents) != len(metadatas):
-            raise ValueError("documents and metadatas must have same length")
+            raise ValueError(
+                f"documents ({len(documents)}) and metadatas ({len(metadatas)}) length mismatch"
+            )
 
         ef = embedding_fn or self.embedding_fn
         if ef is None:
@@ -181,17 +162,16 @@ class MilvusStore(VectorStore):
 
         embeddings = ef(documents)
 
-        data = [
-            {
+        data = []
+        for emb, doc, meta in zip(embeddings, documents, metadatas):
+            entry = {
                 "vector": emb,
                 "text": doc,
                 "source": str(meta.get("source", "unknown"))[:512],
-                # You can add original_id if you want traceability
-                # "original_id": ids[i] if ids else None,
-                **meta  # dynamic fields for all other metadata
             }
-            for i, (emb, doc, meta) in enumerate(zip(embeddings, documents, metadatas))
-        ]
+            # Add all other metadata fields as dynamic fields
+            entry.update({k: v for k, v in meta.items() if k != "source" and k != "text"})
+            data.append(entry)
 
         self.client.insert(
             collection_name=self.collection_name,
@@ -213,19 +193,19 @@ class MilvusStore(VectorStore):
 
         fields = output_fields or ["text", "source"]
 
-        results = self.client.search(
+        res = self.client.search(
             collection_name=self.collection_name,
             data=[query_emb],
             limit=k,
             output_fields=fields,
             search_params={"metric_type": self.metric_type, "params": {"ef": 128}}
-        )[0]  # first query result list
+        )[0]
 
         return {
-            "documents": [hit["entity"].get("text", "") for hit in results],
-            "distances": [hit["distance"] for hit in results],
-            "metadatas": [{"source": hit["entity"].get("source", "?")} for hit in results],
-            "ids": [hit["id"] for hit in results],           # auto-generated int64 ids
+            "documents": [hit["entity"].get("text", "") for hit in res],
+            "distances": [hit["distance"] for hit in res],
+            "metadatas": [hit["entity"] for hit in res],  # contains source + dynamic fields
+            "ids": [hit["id"] for hit in res],
         }
 
     def count(self) -> int:
@@ -237,6 +217,6 @@ class MilvusStore(VectorStore):
     def delete_collection(self):
         if self.client.has_collection(self.collection_name):
             self.client.drop_collection(self.collection_name)
-            logger.info(f"Collection '{self.collection_name}' deleted")
+            logger.info(f"Deleted collection '{self.collection_name}'")
         self._dimension = None
         self._initialized = False
