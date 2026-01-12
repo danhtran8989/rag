@@ -1,151 +1,97 @@
-# from pymilvus import MilvusClient, DataType
-# from pymilvus.milvus_client import MilvusClient as MC
-# from typing import List
-# import numpy as np
-# from .base import VectorStore
-
-# class MilvusStore(VectorStore):
-#     def __init__(self, uri: str, collection_name: str, user: str = None, password: str = None):
-#         self.uri = uri
-#         self.collection_name = collection_name
-#         self.client = MilvusClient(uri=uri, user=user or "", password=password or "")
-#         self.dim = None
-#         self.collection_exists = False
-
-#     def get_or_create_collection(self, embedding_fn, collection_name: str):
-#         if not self.client.has_collection(collection_name):
-#             # Infer dimension from a dummy embedding
-#             dummy_emb = embedding_fn(["dummy"])[0]
-#             self.dim = len(dummy_emb)
-#             schema = {
-#                 "fields": [
-#                     {"name": "id", "type": DataType.VARCHAR, "is_primary": True, "max_length": 100},
-#                     {"name": "vector", "type": DataType.FLOAT_VECTOR, "params": {"dim": self.dim}},
-#                     {"name": "source", "type": DataType.VARCHAR, "max_length": 512},
-#                 ]
-#             }
-#             index_params = {
-#                 "metric_type": "COSINE",
-#                 "index_type": "IVF_FLAT",
-#                 "params": {"nlist": 128}
-#             }
-#             self.client.create_collection(
-#                 collection_name=collection_name,
-#                 schema=schema,
-#                 index_params=[{"field_name": "vector", **index_params}]
-#             )
-#         self.collection_exists = True
-#         return self
-
-#     def add_documents(self, documents: List[str], ids: List[str], metadatas: List[dict]):
-#         embeddings = embedding_fn(documents)
-#         data = [
-#             {"id": id_, "vector": emb, "source": meta.get("source", "")}
-#             for id_, emb, meta in zip(ids, embeddings, metadatas)
-#         ]
-#         self.client.insert(collection_name=self.collection_name, data=data)
-
-#     def query(self, query_text: str, embedding_fn, k: int = 6):
-#         query_emb = embedding_fn([query_text])[0]
-#         results = self.client.search(
-#             collection_name=self.collection_name,
-#             data=[query_emb],
-#             limit=k,
-#             output_fields=["source", "id"]
-#         )
-#         docs, dists, metas = [], [], []
-#         for hit in results[0]:
-#             entity = hit["entity"]
-#             docs.append(entity.get("text", ""))  # Milvus doesn't store text by default → we store it
-#             dists.append(hit["distance"])
-#             metas.append({"source": entity.get("source", "?")})
-#         # Since we didn't store text, return empty docs and rely on metadata if needed
-#         return {"documents": [docs], "distances": [dists], "metadatas": [metas]}
-
-#     def count(self) -> int:
-#         if self.client.has_collection(self.collection_name):
-#             res = self.client.get_collection_stats(self.collection_name)
-#             return int(res.get("row_count", 0))
-#         return 0
-
-#     def delete_collection(self):
-#         if self.client.has_collection(self.collection_name):
-#             self.client.drop_collection(self.collection_name)
-#         self.collection_exists = False
-
-###########################################
-# src/my_rag/vector_stores/milvus.py
+# src/my_rag/vector_stores/milvus_store.py
 from pymilvus import MilvusClient, DataType
 from typing import List, Dict, Any, Optional
 from .base import VectorStore
 
 
 class MilvusStore(VectorStore):
+    """
+    Modern Milvus vector store implementation using MilvusClient (2025-2026 style)
+    - Uses simplified create_collection API (no raw schema dict)
+    - AUTOINDEX for best performance with zero tuning
+    - Stores text + source metadata
+    """
+
     def __init__(
         self,
-        uri: str = "./milvus_rag.db",
+        uri: str = "./milvus_rag.db",           # or "http://localhost:19530"
         collection_name: str = "rag_docs",
         metric_type: str = "COSINE",
-        user: str = "root",
-        password: str = "Milvus",
+        user: Optional[str] = None,
+        password: Optional[str] = None,
     ):
         self.client = MilvusClient(
             uri=uri,
-            # user=user,
-            # password=password
+            user=user or "",
+            password=password or ""
         )
         self.collection_name = collection_name
         self.metric_type = metric_type
         self._dimension: Optional[int] = None
 
-    def get_or_create_collection(self, embedding_fn, collection_name: str = None):
-        """Create collection if not exists, infer dimension from embedding function"""
+    def get_or_create_collection(
+        self,
+        embedding_fn,                       # callable that takes list[str] → list[list[float]]
+        collection_name: Optional[str] = None
+    ):
+        """
+        Create collection if it doesn't exist.
+        Uses modern simplified API (dimension + metric_type directly).
+        """
         if collection_name:
             self.collection_name = collection_name
 
         if self.client.has_collection(self.collection_name):
-            collection_info = self.client.describe_collection(self.collection_name)
-            self._dimension = collection_info["params"]["dim"]
+            # Get existing dimension
+            info = self.client.describe_collection(self.collection_name)
+            for field in info.get("fields", []):
+                if field["type"] == str(DataType.FLOAT_VECTOR):
+                    self._dimension = field["params"]["dim"]
+                    break
+            if self._dimension is None:
+                raise RuntimeError("Could not determine vector dimension from existing collection")
+            
             self.client.load_collection(self.collection_name)
             return self
 
-        # Infer dimension
+        # Infer dimension from embedding function
         dummy_embedding = embedding_fn(["dummy text"])[0]
         self._dimension = len(dummy_embedding)
 
-        schema = {
-            "fields": [
-                {"name": "id", "type": DataType.VARCHAR, "is_primary": True, "max_length": 100},
-                {"name": "vector", "type": DataType.FLOAT_VECTOR, "params": {"dim": self._dimension}},
-                {"name": "text", "type": DataType.VARCHAR, "params": {"max_length": 65535}},
-                {"name": "source", "type": DataType.VARCHAR, "params": {"max_length": 512}},
-            ]
-        }
-
+        # ───────────────────────────────────────────────────────────────
+        # Modern recommended way (2025-2026) - NO schema dictionary!
+        # ───────────────────────────────────────────────────────────────
         self.client.create_collection(
             collection_name=self.collection_name,
-            schema=schema,
+            dimension=self._dimension,
             metric_type=self.metric_type,
-            auto_id=False
+            primary_field_name="id",
+            vector_field_name="vector",
+            auto_id=False,                    # We provide custom string IDs
+            enable_dynamic_field=True,        # Allows extra fields without schema
         )
+        # ───────────────────────────────────────────────────────────────
 
-        # Modern & convenient index (2025/2026 style)
-        index_params = self.client.prepare_index_params()
-        index_params.add_index(
+        # Create strong default index - AUTOINDEX is excellent in recent versions
+        self.client.create_index(
+            collection_name=self.collection_name,
             field_name="vector",
-            index_type="AUTOINDEX",
-            metric_type=self.metric_type
+            index_params={
+                "index_type": "AUTOINDEX",
+                "metric_type": self.metric_type,
+                "params": {}   # let Milvus auto-tune
+            }
         )
-        self.client.create_index(self.collection_name, index_params)
-        self.client.load_collection(self.collection_name)
 
+        self.client.load_collection(self.collection_name)
         return self
 
     def add_documents(
         self,
         documents: List[str],
         ids: List[str],
-        metadatas: List[Dict]
+        metadatas: List[Dict[str, Any]],
+        embedding_fn=None,              # optional - can be passed here instead of globally
     ):
         if not documents:
             return
@@ -153,39 +99,63 @@ class MilvusStore(VectorStore):
         if len(documents) != len(ids) or len(documents) != len(metadatas):
             raise ValueError("documents, ids, and metadatas must have the same length")
 
-        embeddings = embedding_fn(documents)  # assuming embedding_fn is in scope or injected
+        # If embedding_fn not passed, you should have it available in your context
+        if embedding_fn is None:
+            raise ValueError("embedding_fn is required to generate embeddings")
+
+        embeddings = embedding_fn(documents)
 
         data = [
             {
-                "id": str(id_),  # Milvus VARCHAR primary key
+                "id": str(id_),                     # must be string for VARCHAR PK
                 "vector": emb,
-                "text": text,
-                "source": meta.get("source", "unknown")[:512]
+                "text": doc,
+                "source": str(meta.get("source", "unknown"))[:512],
+                # You can add more fields here → dynamic fields will accept them
             }
-            for id_, emb, text, meta in zip(ids, embeddings, documents, metadatas)
+            for id_, emb, doc, meta in zip(ids, embeddings, documents, metadatas)
         ]
 
-        self.client.insert(self.collection_name, data)
+        self.client.insert(
+            collection_name=self.collection_name,
+            data=data
+        )
 
-    def query(self, query_text: str, embedding_fn, k: int = 6) -> Dict:
+    def query(
+        self,
+        query_text: str,
+        embedding_fn,
+        k: int = 6,
+        output_fields: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Search for similar documents
+        Returns: {"documents": [...], "distances": [...], "metadatas": [...], "ids": [...]}
+        """
         if self._dimension is None:
             raise RuntimeError("Collection not initialized. Call get_or_create_collection first.")
 
+        if embedding_fn is None:
+            raise ValueError("embedding_fn is required for query")
+
         query_emb = embedding_fn([query_text])[0]
+
+        default_fields = ["text", "source", "id"]
+        fields = output_fields if output_fields is not None else default_fields
 
         results = self.client.search(
             collection_name=self.collection_name,
             data=[query_emb],
             limit=k,
-            output_fields=["text", "source", "id"],
+            output_fields=fields,
             search_params={"metric_type": self.metric_type}
-        )[0]
+        )[0]  # first query vector results
 
         return {
-            "documents": [hit["entity"]["text"] for hit in results],
+            "documents": [hit["entity"].get("text", "") for hit in results],
             "distances": [hit["distance"] for hit in results],
-            "metadatas": [{"source": hit["entity"]["source"]} for hit in results],
-            "ids": [hit["entity"]["id"] for hit in results]
+            "metadatas": [{"source": hit["entity"].get("source", "?")} for hit in results],
+            "ids": [hit["entity"].get("id", "") for hit in results],
         }
 
     def count(self) -> int:
@@ -197,3 +167,12 @@ class MilvusStore(VectorStore):
     def delete_collection(self):
         if self.client.has_collection(self.collection_name):
             self.client.drop_collection(self.collection_name)
+        self._dimension = None
+
+    def clear_collection(self):
+        """Delete all entities but keep the collection structure"""
+        if self.client.has_collection(self.collection_name):
+            self.client.delete(
+                collection_name=self.collection_name,
+                filter="id != ''"  # delete everything
+            )
