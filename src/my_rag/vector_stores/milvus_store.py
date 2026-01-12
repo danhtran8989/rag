@@ -1,17 +1,16 @@
 # src/my_rag/vector_stores/milvus_store.py
-from pymilvus import MilvusClient, DataType
+from pymilvus import MilvusClient, DataType, CollectionSchema, FieldSchema
 from typing import List, Dict, Any, Optional, Callable
 from .base import VectorStore
 
 
 class MilvusStore(VectorStore):
     """
-    Modern Milvus vector store implementation (compatible with pymilvus 2.4.x - 2.6.x)
-    Features:
-    - Uses simplified create_collection API (auto int64 PK + auto_id=True)
-    - AUTOINDEX for excellent performance with zero tuning
-    - Stores text + source + supports dynamic fields
-    - embedding_fn can be stored at init or passed per operation
+    Modern Milvus vector store (pymilvus 2.6.x compatible - Jan 2026)
+    - Uses explicit CollectionSchema for reliable auto_id=True behavior
+    - Auto-generated int64 primary key ("id")
+    - No need to provide "id" in insert data
+    - Supports dynamic fields for extra metadata
     """
 
     def __init__(
@@ -29,7 +28,7 @@ class MilvusStore(VectorStore):
             password=password or ""
         )
         self.collection_name = collection_name
-        self.metric_type = metric_type.upper()  # Ensure COSINE/L2/IP
+        self.metric_type = metric_type.upper()
         self.embedding_fn = embedding_fn
         self._dimension: Optional[int] = None
         self._initialized = False
@@ -42,7 +41,6 @@ class MilvusStore(VectorStore):
         if collection_name:
             self.collection_name = collection_name
 
-        # Allow overriding/storing embedding function
         if embedding_fn is not None:
             self.embedding_fn = embedding_fn
 
@@ -52,37 +50,65 @@ class MilvusStore(VectorStore):
                 if field.get("type") == str(DataType.FLOAT_VECTOR):
                     self._dimension = field["params"].get("dim")
                     break
-            
+
             if self._dimension is None:
-                raise RuntimeError("Could not detect vector field dimension in existing collection")
+                raise RuntimeError("Could not detect vector dimension")
 
             self.client.load_collection(self.collection_name)
             self._initialized = True
             return self
 
         if self.embedding_fn is None:
-            raise ValueError("embedding_fn is required to infer dimension")
+            raise ValueError("embedding_fn required to infer dimension")
 
-        # Infer dimension from dummy call
         dummy_embedding = self.embedding_fn(["dummy text"])[0]
         self._dimension = len(dummy_embedding)
 
-        # Modern simplified creation - auto int64 PK + auto_id=True by default
-        self.client.create_collection(
-            collection_name=self.collection_name,
-            dimension=self._dimension,
-            metric_type=self.metric_type,
-            enable_dynamic_field=True,           # Very useful for extra metadata
+        # ───────────────────────────────────────────────────────────────
+        # Explicit schema - most reliable way (recommended in 2026)
+        # ───────────────────────────────────────────────────────────────
+        schema = CollectionSchema(
+            fields=[
+                FieldSchema(
+                    name="id",
+                    dtype=DataType.INT64,
+                    is_primary=True,
+                    auto_id=True,               # Milvus auto-generates IDs
+                ),
+                FieldSchema(
+                    name="vector",
+                    dtype=DataType.FLOAT_VECTOR,
+                    dim=self._dimension
+                ),
+                FieldSchema(
+                    name="text",
+                    dtype=DataType.VARCHAR,
+                    max_length=65535
+                ),
+                FieldSchema(
+                    name="source",
+                    dtype=DataType.VARCHAR,
+                    max_length=512
+                ),
+            ],
+            description="RAG documents collection",
+            enable_dynamic_field=True
         )
 
-        # Create strong default index (AUTOINDEX = excellent in 2025-2026)
+        self.client.create_collection(
+            collection_name=self.collection_name,
+            schema=schema,
+            metric_type=self.metric_type
+        )
+        # ───────────────────────────────────────────────────────────────
+
+        # Create index
         index_params = self.client.prepare_index_params()
         index_params.add_index(
             field_name="vector",
             index_type="AUTOINDEX",
             metric_type=self.metric_type,
         )
-
         self.client.create_index(
             collection_name=self.collection_name,
             index_params=index_params
@@ -95,24 +121,19 @@ class MilvusStore(VectorStore):
     def add_documents(
         self,
         documents: List[str],
-        ids: List[str],                        # ← kept for compatibility, but NOT used as PK
+        ids: List[str],  # ← ignored for PK, can store as extra field if needed
         metadatas: List[Dict[str, Any]],
         embedding_fn: Optional[Callable[[List[str]], List[List[float]]]] = None,
     ):
-        """
-        Insert documents.
-        Note: Primary key is auto-generated (int64) by Milvus
-        Your original ids can be stored in dynamic field 'original_id' if needed
-        """
         if not documents:
             return
 
         if len(documents) != len(metadatas):
-            raise ValueError("documents and metadatas must have the same length")
+            raise ValueError("documents and metadatas must have same length")
 
         ef = embedding_fn or self.embedding_fn
         if ef is None:
-            raise ValueError("embedding_fn required (pass it or set during __init__)")
+            raise ValueError("embedding_fn required")
 
         embeddings = ef(documents)
 
@@ -121,11 +142,10 @@ class MilvusStore(VectorStore):
                 "vector": emb,
                 "text": doc,
                 "source": str(meta.get("source", "unknown"))[:512],
-                # Optional: store your original id as extra field
+                # Optional: keep your original id if you want traceability
                 # "original_id": str(original_id),
             }
-            for emb, doc, original_id, meta
-            in zip(embeddings, documents, ids, metadatas)
+            for emb, doc, original_id, meta in zip(embeddings, documents, ids, metadatas)
         ]
 
         self.client.insert(
@@ -159,7 +179,7 @@ class MilvusStore(VectorStore):
             "documents": [hit["entity"].get("text", "") for hit in results],
             "distances": [hit["distance"] for hit in results],
             "metadatas": [{"source": hit["entity"].get("source", "?")} for hit in results],
-            "ids": [hit["id"] for hit in results],           # ← Milvus auto-generated int64 ids
+            "ids": [hit["id"] for hit in results],  # auto-generated int64 ids
         }
 
     def count(self) -> int:
@@ -173,11 +193,3 @@ class MilvusStore(VectorStore):
             self.client.drop_collection(self.collection_name)
         self._dimension = None
         self._initialized = False
-
-    def clear(self):
-        """Delete all vectors but keep collection schema"""
-        if self.client.has_collection(self.collection_name):
-            self.client.delete(
-                collection_name=self.collection_name,
-                filter="id >= 0"   # delete everything
-            )
