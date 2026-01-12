@@ -1,7 +1,7 @@
 # src/my_rag/vector_stores/chroma_store.py
 import chromadb
+from typing import List, Dict, Any, Optional, Callable
 from .base import VectorStore
-from typing import Optional
 
 
 class ChromaStore(VectorStore):
@@ -33,7 +33,11 @@ class ChromaStore(VectorStore):
                 )
         return self.collection
 
-    def add_documents(self, documents, ids, metadatas):
+    def add_documents(self, 
+                      documents, 
+                      ids, 
+                      metadatas,
+                      embedding_fn: Optional[Callable[[List[str]], List[List[float]]]] = None,):
         if self.collection is None:
             raise RuntimeError("Collection chưa được khởi tạo. Gọi get_or_create_collection trước.")
         self.collection.add(
