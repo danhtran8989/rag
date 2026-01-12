@@ -28,10 +28,62 @@ if os.path.exists(CSS_PATH):
         custom_css = f.read()
 
 
+# def print_retrieved_chunks(query: str, k: int, embedding_model: str):
+#     """
+#     Retrieve and print the top-k relevant chunks for debugging.
+#     Tương thích hoàn toàn với ChromaStore.query(query_text, embedding_fn, k)
+#     """
+#     try:
+#         if rag_system.vector_store is None:
+#             print("Vector store chưa được khởi tạo.")
+#             return
+
+#         if rag_system.vector_store.count() == 0:
+#             print("Collection rỗng — chưa có tài liệu nào được index.")
+#             return
+
+#         # Lấy đúng embedding function theo model người dùng chọn
+#         embedding_fn = rag_system._get_embedding_fn(embedding_model)
+
+#         # Gọi query ĐÚNG cách mà ChromaStore hỗ trợ
+#         results = rag_system.vector_store.query(
+#             query_text=query,
+#             embedding_fn=embedding_fn,
+#             k=k
+#         )
+
+#         # Kiểm tra kết quả
+#         if not results or not results.get("documents") or not results["documents"][0]:
+#             print("Không tìm thấy chunk nào phù hợp với query này.")
+#             return
+
+#         documents = results["documents"][0]
+#         metadatas = results["metadatas"][0]
+#         distances = results["distances"][0]
+
+#         print("\n" + "=" * 80)
+#         print(f"RETRIEVED CHUNKS FOR QUERY: \"{query}\"")
+#         print(f"Embedding model: {embedding_model} | Top K: {k}")
+#         print("=" * 80)
+
+#         for i, (doc, meta, dist) in enumerate(zip(documents, metadatas, distances), 1):
+#             source = meta.get("source", "Unknown source")
+#             # print(f"\nChunk {i} | Distance: {dist:.4f} | Source: {os.path.basename(source)}")
+#             # print("-" * 60)
+#             # print(doc.strip())
+#             # print("-" * 60)
+
+#         # print("=" * 80 + "\n")
+
+#     except Exception as e:
+#         print(f"Error retrieving chunks: {e}")
+#         import traceback
+#         traceback.print_exc()
+
 def print_retrieved_chunks(query: str, k: int, embedding_model: str):
     """
     Retrieve and print the top-k relevant chunks for debugging.
-    Tương thích hoàn toàn với ChromaStore.query(query_text, embedding_fn, k)
+    Works with both Chroma (nested lists) and Milvus (flat lists).
     """
     try:
         if rag_system.vector_store is None:
@@ -42,38 +94,49 @@ def print_retrieved_chunks(query: str, k: int, embedding_model: str):
             print("Collection rỗng — chưa có tài liệu nào được index.")
             return
 
-        # Lấy đúng embedding function theo model người dùng chọn
         embedding_fn = rag_system._get_embedding_fn(embedding_model)
 
-        # Gọi query ĐÚNG cách mà ChromaStore hỗ trợ
         results = rag_system.vector_store.query(
             query_text=query,
             embedding_fn=embedding_fn,
             k=k
         )
 
-        # Kiểm tra kết quả
-        if not results or not results.get("documents") or not results["documents"][0]:
+        if not results or not results.get("documents"):
             print("Không tìm thấy chunk nào phù hợp với query này.")
             return
 
-        documents = results["documents"][0]
-        metadatas = results["metadatas"][0]
-        distances = results["distances"][0]
+        # ───────────────────────────────────────────────────────────────
+        # Handle both flat (Milvus) and nested (Chroma) formats
+        # ───────────────────────────────────────────────────────────────
+        docs = results["documents"]
+        dists = results["distances"]
+        metas = results["metadatas"]
+
+        # If nested (Chroma-style), take first query result
+        if isinstance(docs, list) and docs and isinstance(docs[0], list):
+            docs = docs[0]
+            dists = dists[0] if dists else []
+            metas = metas[0] if metas else []
+
+        # Now we have flat lists for both
+        if not docs:
+            print("Không có kết quả nào.")
+            return
 
         print("\n" + "=" * 80)
         print(f"RETRIEVED CHUNKS FOR QUERY: \"{query}\"")
         print(f"Embedding model: {embedding_model} | Top K: {k}")
         print("=" * 80)
 
-        for i, (doc, meta, dist) in enumerate(zip(documents, metadatas, distances), 1):
+        for i, (doc, dist, meta) in enumerate(zip(docs, dists, metas), 1):
             source = meta.get("source", "Unknown source")
-            # print(f"\nChunk {i} | Distance: {dist:.4f} | Source: {os.path.basename(source)}")
-            # print("-" * 60)
-            # print(doc.strip())
-            # print("-" * 60)
+            print(f"\nChunk {i} | Distance: {dist:.4f} | Source: {os.path.basename(source)}")
+            print("-" * 60)
+            print(doc.strip())
+            print("-" * 60)
 
-        # print("=" * 80 + "\n")
+        print("=" * 80 + "\n")
 
     except Exception as e:
         print(f"Error retrieving chunks: {e}")
