@@ -6,10 +6,12 @@ from .base import VectorStore
 
 class MilvusStore(VectorStore):
     """
-    Modern Milvus vector store (pymilvus 2.4+/2.5+ style - Jan 2026)
-    - Simplified collection creation
-    - IndexParams for index
-    - embedding_fn can be stored or passed per-call
+    Modern Milvus vector store implementation (compatible with pymilvus 2.4.x - 2.6.x)
+    Features:
+    - Uses simplified create_collection API (auto int64 PK + auto_id=True)
+    - AUTOINDEX for excellent performance with zero tuning
+    - Stores text + source + supports dynamic fields
+    - embedding_fn can be stored at init or passed per operation
     """
 
     def __init__(
@@ -27,8 +29,8 @@ class MilvusStore(VectorStore):
             password=password or ""
         )
         self.collection_name = collection_name
-        self.metric_type = metric_type
-        self.embedding_fn = embedding_fn  # ← Can be set here
+        self.metric_type = metric_type.upper()  # Ensure COSINE/L2/IP
+        self.embedding_fn = embedding_fn
         self._dimension: Optional[int] = None
         self._initialized = False
 
@@ -40,7 +42,7 @@ class MilvusStore(VectorStore):
         if collection_name:
             self.collection_name = collection_name
 
-        # Allow overriding embedding_fn here too
+        # Allow overriding/storing embedding function
         if embedding_fn is not None:
             self.embedding_fn = embedding_fn
 
@@ -50,31 +52,30 @@ class MilvusStore(VectorStore):
                 if field.get("type") == str(DataType.FLOAT_VECTOR):
                     self._dimension = field["params"].get("dim")
                     break
+            
             if self._dimension is None:
-                raise RuntimeError("Could not detect vector dimension")
+                raise RuntimeError("Could not detect vector field dimension in existing collection")
 
             self.client.load_collection(self.collection_name)
             self._initialized = True
             return self
 
         if self.embedding_fn is None:
-            raise ValueError("embedding_fn required to infer dimension")
+            raise ValueError("embedding_fn is required to infer dimension")
 
-        # Infer dimension
+        # Infer dimension from dummy call
         dummy_embedding = self.embedding_fn(["dummy text"])[0]
         self._dimension = len(dummy_embedding)
 
+        # Modern simplified creation - auto int64 PK + auto_id=True by default
         self.client.create_collection(
             collection_name=self.collection_name,
             dimension=self._dimension,
             metric_type=self.metric_type,
-            primary_field_name="id",
-            vector_field_name="vector",
-            auto_id=False,
-            enable_dynamic_field=True,
+            enable_dynamic_field=True,           # Very useful for extra metadata
         )
 
-        # Modern index creation
+        # Create strong default index (AUTOINDEX = excellent in 2025-2026)
         index_params = self.client.prepare_index_params()
         index_params.add_index(
             field_name="vector",
@@ -94,33 +95,43 @@ class MilvusStore(VectorStore):
     def add_documents(
         self,
         documents: List[str],
-        ids: List[str],
+        ids: List[str],                        # ← kept for compatibility, but NOT used as PK
         metadatas: List[Dict[str, Any]],
         embedding_fn: Optional[Callable[[List[str]], List[List[float]]]] = None,
     ):
+        """
+        Insert documents.
+        Note: Primary key is auto-generated (int64) by Milvus
+        Your original ids can be stored in dynamic field 'original_id' if needed
+        """
         if not documents:
             return
 
-        if len(documents) != len(ids) or len(documents) != len(metadatas):
-            raise ValueError("Lengths mismatch: documents/ids/metadatas")
+        if len(documents) != len(metadatas):
+            raise ValueError("documents and metadatas must have the same length")
 
         ef = embedding_fn or self.embedding_fn
         if ef is None:
-            raise ValueError("embedding_fn required (pass it or set in __init__)")
+            raise ValueError("embedding_fn required (pass it or set during __init__)")
 
         embeddings = ef(documents)
 
         data = [
             {
-                "id": str(id_),
                 "vector": emb,
                 "text": doc,
                 "source": str(meta.get("source", "unknown"))[:512],
+                # Optional: store your original id as extra field
+                # "original_id": str(original_id),
             }
-            for id_, emb, doc, meta in zip(ids, embeddings, documents, metadatas)
+            for emb, doc, original_id, meta
+            in zip(embeddings, documents, ids, metadatas)
         ]
 
-        self.client.insert(collection_name=self.collection_name, data=data)
+        self.client.insert(
+            collection_name=self.collection_name,
+            data=data
+        )
 
     def query(
         self,
@@ -134,7 +145,7 @@ class MilvusStore(VectorStore):
 
         query_emb = embedding_fn([query_text])[0]
 
-        fields = output_fields or ["text", "source", "id"]
+        fields = output_fields or ["text", "source"]
 
         results = self.client.search(
             collection_name=self.collection_name,
@@ -148,7 +159,7 @@ class MilvusStore(VectorStore):
             "documents": [hit["entity"].get("text", "") for hit in results],
             "distances": [hit["distance"] for hit in results],
             "metadatas": [{"source": hit["entity"].get("source", "?")} for hit in results],
-            "ids": [hit["entity"].get("id", "") for hit in results],
+            "ids": [hit["id"] for hit in results],           # ← Milvus auto-generated int64 ids
         }
 
     def count(self) -> int:
@@ -162,3 +173,11 @@ class MilvusStore(VectorStore):
             self.client.drop_collection(self.collection_name)
         self._dimension = None
         self._initialized = False
+
+    def clear(self):
+        """Delete all vectors but keep collection schema"""
+        if self.client.has_collection(self.collection_name):
+            self.client.delete(
+                collection_name=self.collection_name,
+                filter="id >= 0"   # delete everything
+            )
