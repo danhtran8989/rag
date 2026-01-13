@@ -1,5 +1,5 @@
 # configs/vector_db.yml
-default: "chroma"   # options: chroma, milvus, pgvector
+default: "milvus"   # options: chroma, milvus, pgvector
 
 chroma:
   path: "./vector_db/chroma_db"
@@ -12,6 +12,6 @@ milvus:
   # user: "root"                  # uncomment if auth enabled
   # password: "Milvus"            # uncomment if auth enabled
 
-pgvector:
-  connection_string: "postgresql://postgres:postgres@localhost:5432/rag_db"
-  collection_name: "multi_docs_rag"
+# pgvector:
+#   connection_string: "postgresql://postgres:postgres@localhost:5432/rag_db"
+#   collection_name: "multi_docs_rag"
