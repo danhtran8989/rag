@@ -28,58 +28,6 @@ if os.path.exists(CSS_PATH):
         custom_css = f.read()
 
 
-# def print_retrieved_chunks(query: str, k: int, embedding_model: str):
-#     """
-#     Retrieve and print the top-k relevant chunks for debugging.
-#     Tương thích hoàn toàn với ChromaStore.query(query_text, embedding_fn, k)
-#     """
-#     try:
-#         if rag_system.vector_store is None:
-#             print("Vector store chưa được khởi tạo.")
-#             return
-
-#         if rag_system.vector_store.count() == 0:
-#             print("Collection rỗng — chưa có tài liệu nào được index.")
-#             return
-
-#         # Lấy đúng embedding function theo model người dùng chọn
-#         embedding_fn = rag_system._get_embedding_fn(embedding_model)
-
-#         # Gọi query ĐÚNG cách mà ChromaStore hỗ trợ
-#         results = rag_system.vector_store.query(
-#             query_text=query,
-#             embedding_fn=embedding_fn,
-#             k=k
-#         )
-
-#         # Kiểm tra kết quả
-#         if not results or not results.get("documents") or not results["documents"][0]:
-#             print("Không tìm thấy chunk nào phù hợp với query này.")
-#             return
-
-#         documents = results["documents"][0]
-#         metadatas = results["metadatas"][0]
-#         distances = results["distances"][0]
-
-#         print("\n" + "=" * 80)
-#         print(f"RETRIEVED CHUNKS FOR QUERY: \"{query}\"")
-#         print(f"Embedding model: {embedding_model} | Top K: {k}")
-#         print("=" * 80)
-
-#         for i, (doc, meta, dist) in enumerate(zip(documents, metadatas, distances), 1):
-#             source = meta.get("source", "Unknown source")
-#             # print(f"\nChunk {i} | Distance: {dist:.4f} | Source: {os.path.basename(source)}")
-#             # print("-" * 60)
-#             # print(doc.strip())
-#             # print("-" * 60)
-
-#         # print("=" * 80 + "\n")
-
-#     except Exception as e:
-#         print(f"Error retrieving chunks: {e}")
-#         import traceback
-#         traceback.print_exc()
-
 def print_retrieved_chunks(query: str, k: int, embedding_model: str):
     try:
         if rag_system.vector_store is None:
@@ -128,12 +76,6 @@ def print_retrieved_chunks(query: str, k: int, embedding_model: str):
         # Now we can safely zip
         for i, (doc, dist, meta) in enumerate(zip(docs, dists, metas), 1):
             source = meta.get("source", "Unknown source")
-            # print(f"\nChunk {i} | Distance: {dist:.4f} | Source: {os.path.basename(source)}")
-            # print("-" * 60)
-            # print(doc.strip())
-            # print("-" * 60)
-
-        # print("=" * 80 + "\n")
 
     except Exception as e:
         print(f"Error retrieving chunks: {e}")
@@ -223,7 +165,7 @@ def create_demo():
                 file_upload = gr.File(label="Tải tài liệu", file_count="multiple", type="filepath")
                 llm_dropdown = gr.Dropdown(choices=LLM_MODELS, value=DEFAULT_LLM, label="Model LLM")
                 emb_dropdown = gr.Dropdown(choices=EMBEDDING_MODELS, value=DEFAULT_EMBEDDING, label="Embedding")
-                vector_db_dropdown = gr.Dropdown(choices=["chroma", "milvus", "pgvector"], value=VECTOR_DB_DEFAULT, label="Vector DB")
+                vector_db_dropdown = gr.Dropdown(choices=["chroma", "milvus"], value=VECTOR_DB_DEFAULT, label="Vector DB")
 
                 retrieval_k = gr.Slider(1, 20, value=5, step=1, label="Số lượng chunk (K)")
 

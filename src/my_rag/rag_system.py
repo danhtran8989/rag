@@ -61,6 +61,7 @@ class RAGSystem:
     def _get_embedding_fn(self, embedding_model_name: str):
         device = "cuda" if torch.cuda.is_available() else "cpu"
         if embedding_model_name != self.current_embedding_model or self.embedding_fn is None:
+            print(f"Loading new embedding model: {embedding_model_name}")
             self.embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
                 model_name=embedding_model_name,
                 device=device,
@@ -76,14 +77,20 @@ class RAGSystem:
         uploaded_files: List[str],
         vector_db_type: str = None,
     ):
-        """Tạo hoặc tái sử dụng collection dựa trên thay đổi file."""
-        # Cập nhật store_type nếu có thay đổi
-        if vector_db_type and vector_db_type.lower() != self.store_type:
-            self.store_type = vector_db_type.lower()
+        """Tạo hoặc tái sử dụng collection dựa trên thay đổi file / db type / embedding model."""
+        # Chuẩn hóa và kiểm tra thay đổi vector db type
+        vector_db_type = vector_db_type.lower() if vector_db_type else self.store_type
+        db_changed = vector_db_type != self.store_type
+
+        if db_changed:
+            print(f"Vector DB type CHANGED: {self.store_type.upper()} → {vector_db_type.upper()}")
+            self.store_type = vector_db_type
             config = VECTOR_DB_CONFIG[self.store_type]
             self.vector_store = get_vector_store(self.store_type, **config)
 
         embedding_fn = self._get_embedding_fn(embedding_model_name)
+        embedding_changed = embedding_model_name != self.current_embedding_model
+
         config = VECTOR_DB_CONFIG[self.store_type]
 
         # Tính hash các file hiện tại
@@ -97,37 +104,35 @@ class RAGSystem:
             else:
                 print(f"File không tồn tại (có thể đã bị xóa): {file_path}")
 
-        print(f"Indexed files (before): {self.indexed_files}")
-        print(f"Current file hashes: {current_hashes}")
+        files_changed = current_hashes != self.indexed_files
 
-        # Kiểm tra có thay đổi không
-        files_changed = False
-
-        # File mới hoặc thay đổi nội dung
-        for fp, new_hash in current_hashes.items():
-            if self.indexed_files.get(fp) != new_hash:
-                files_changed = True
-                print(f"File mới hoặc đã thay đổi: {os.path.basename(fp)}")
-
-        # File bị xóa khỏi danh sách
-        for old_fp in list(self.indexed_files.keys()):
-            if old_fp not in current_hashes:
-                files_changed = True
-                print(f"File bị xóa khỏi danh sách: {os.path.basename(old_fp)}")
-
-        need_rebuild = files_changed or len(self.indexed_files) == 0
+        # Điều kiện rebuild toàn bộ collection
+        need_rebuild = (
+            db_changed or
+            embedding_changed or
+            files_changed or
+            len(self.indexed_files) == 0
+        )
 
         if need_rebuild:
-            print("Rebuild collection (lần đầu hoặc có thay đổi file)")
+            reasons = []
+            if db_changed: reasons.append("vector DB type changed")
+            if embedding_changed: reasons.append("embedding model changed")
+            if files_changed: reasons.append("files changed/added/removed")
+            if len(self.indexed_files) == 0: reasons.append("first time indexing")
+
+            print("Rebuilding collection because: " + ", ".join(reasons))
+
+            # Xóa collection cũ (an toàn với cả Chroma & Milvus)
             self.vector_store.delete_collection()
 
-            # Tạo/lấy collection mới
+            # Tạo collection mới
             self.vector_store.get_or_create_collection(
                 embedding_fn=embedding_fn,
                 collection_name=config["collection_name"]
             )
 
-            # Index tài liệu
+            # Index lại toàn bộ tài liệu
             chunks, ids, metadatas = [], [], []
             for file_path in valid_files:
                 filename = os.path.basename(file_path)
@@ -143,16 +148,16 @@ class RAGSystem:
                 self.vector_store.add_documents(chunks, ids, metadatas, embedding_fn=embedding_fn)
                 print(f"Đã index {len(chunks)} chunks vào {self.store_type.upper()}")
 
+            # Cập nhật trạng thái
             self.indexed_files = current_hashes.copy()
 
         else:
-            print("Không có thay đổi → Giữ nguyên collection hiện tại")
-            # Đảm bảo collection đã được load (an toàn với Milvus & Chroma)
-            if not getattr(self.vector_store, '_initialized', False):
-                self.vector_store.get_or_create_collection(
-                    embedding_fn=embedding_fn,
-                    collection_name=config["collection_name"]
-                )
+            print("Không cần rebuild - giữ nguyên collection hiện tại")
+            # Đảm bảo collection đã được load (an toàn với cả hai loại db)
+            self.vector_store.get_or_create_collection(
+                embedding_fn=embedding_fn,
+                collection_name=config["collection_name"]
+            )
 
     def retrieve(self, query: str, k: int = 6) -> List[Tuple[str, float, dict]]:
         if not self.vector_store or self.vector_store.count() == 0:
