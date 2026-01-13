@@ -5,7 +5,7 @@ chroma:
 
 chunking:
   chunk_size: 5000 # 6000
-  chunk_overlap: 2500 # 1200
+  chunk_overlap: 1250 # 1200
 
 retrieval:
   default_k: 1
