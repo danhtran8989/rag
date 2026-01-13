@@ -171,7 +171,7 @@ def create_demo():
                 emb_dropdown = gr.Dropdown(choices=EMBEDDING_MODELS, value=DEFAULT_EMBEDDING, label="Embedding")
                 vector_db_dropdown = gr.Dropdown(choices=["chroma", "milvus"], value=VECTOR_DB_DEFAULT, label="Vector DB")
 
-                retrieval_k = gr.Slider(1, 20, value=5, step=1, label="Số lượng chunk (K)")
+                retrieval_k = gr.Slider(1, 100, value=5, step=1, label="Số lượng chunk (K)")
 
                 with gr.Accordion("Thông số Gen", open=False):
                     temperature = gr.Slider(0.0, 2.0, value=0.7, label="Temperature")
