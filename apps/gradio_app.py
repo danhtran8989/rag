@@ -77,9 +77,9 @@ def print_retrieved_chunks(query: str, k: int, embedding_model: str):
         for i, (doc, dist, meta) in enumerate(zip(docs, dists, metas), 1):
             source = meta.get("source", "Unknown source")
             print(f"\nChunk {i} | Distance: {dist:.4f} | Source: {os.path.basename(source)}")
-            # print("-" * 60)
-            # print(doc.strip())
-            # print("-" * 60)
+            print("-" * 60)
+            print(doc.strip())
+            print("-" * 60)
 
     except Exception as e:
         print(f"Error retrieving chunks: {e}")
