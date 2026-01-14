@@ -1,6 +1,7 @@
 llm_models:
   - "gemma3:12b-it-qat"
   - "qwen3:14b-Q4_K_M"  
+  - "deepseek-r1:14b-Q4_K_M"
   # - "deepseek-r1:14b-qwen-distill-q4_K_M"
   # - "llama4:17b-scout-16e-instruct-q4_K_M"
 
