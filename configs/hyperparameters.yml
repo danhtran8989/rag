@@ -3,9 +3,8 @@ chroma:
   collection_name: "multi_docs_rag"
   hnsw_space: "cosine"
 
-chunking:
-  # chunk_type: "static"
-  chunk_size: 2048 # 6000
+chunking:  
+  chunk_size: 2048 # 6000 # chunk_type: "static"
   chunk_overlap: 512 # 1200
   # chunk_type: "section-based"  # options: static, section-based
   #   max_level_tag : 4
