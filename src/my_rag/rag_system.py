@@ -146,9 +146,9 @@ class RAGSystem:
                 print(f"Đang xử lý: {filename}")
                 # text = extract_text(file_path)
                 # chunks = chunk_text(text, CHUNK_SIZE, CHUNK_OVERLAP)
-                chunks = get_chunks(file_path)
+                current_chunks = get_chunks(file_path)
 
-                for i, chunk in enumerate(chunks):
+                for i, chunk in enumerate(current_chunks):
                     chunk_id = f"{filename}_chunk_{i:04d}"
                     chunks.append(chunk)
                     ids.append(chunk_id)
