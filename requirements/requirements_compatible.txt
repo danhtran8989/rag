@@ -18,7 +18,7 @@ langchain-community==0.3.31
 pymilvus[model]==2.6.6
 milvus-lite==2.5.1
 langchain-text-splitters==0.3.11
-pymupdf4llm
+pymupdf4llm==0.2.9
 # matplotlib==3.10.8
 # sentence-transformers==5.2.0
 

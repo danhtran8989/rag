@@ -27,3 +27,4 @@ langchain-core
 langchain-community
 # langchain-postgres
 langchain-text-splitters
+pymupdf4llm
