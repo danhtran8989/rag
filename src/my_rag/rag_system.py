@@ -1,6 +1,7 @@
 # src/my_rag/rag_system.py
 import torch
-from chromadb.utils import embedding_functions
+# from chromadb.utils import embedding_functions
+from sentence_transformers import SentenceTransformer
 from typing import List, Tuple, Generator, Dict, Optional
 import hashlib
 import os
@@ -61,11 +62,12 @@ class RAGSystem:
 
     def _get_embedding_fn(self, embedding_model_name: str):
         device = "cuda" if torch.cuda.is_available() else "cpu"
+        cpu_device = "cpu"
         if embedding_model_name != self.current_embedding_model or self.embedding_fn is None:
             print(f"Loading new embedding model: {embedding_model_name}")
             self.embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
                 model_name=embedding_model_name,
-                device=device,
+                device=cpu_device,
                 normalize_embeddings=True,
                 trust_remote_code=True
             )
@@ -141,7 +143,7 @@ class RAGSystem:
                 # text = extract_text(file_path)
                 # chunks = chunk_text(text, CHUNK_SIZE, CHUNK_OVERLAP)
                 chunks = get_chunks(file_path)
-                
+
                 for i, chunk in enumerate(chunks):
                     chunk_id = f"{filename}_chunk_{i:04d}"
                     chunks.append(chunk)
