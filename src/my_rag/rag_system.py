@@ -13,6 +13,7 @@ from .config import (
     VECTOR_DB_CONFIG
 )
 from .text_extraction import extract_text
+from .pdf2structure_text import get_chunks
 from .chunking import chunk_text
 from .utils import ensure_ollama_models
 from .vector_stores import get_vector_store
@@ -137,8 +138,11 @@ class RAGSystem:
             for file_path in valid_files:
                 filename = os.path.basename(file_path)
                 print(f"Đang xử lý: {filename}")
-                text = extract_text(file_path)
-                for i, chunk in enumerate(chunk_text(text, CHUNK_SIZE, CHUNK_OVERLAP)):
+                # text = extract_text(file_path)
+                # chunks = chunk_text(text, CHUNK_SIZE, CHUNK_OVERLAP)
+                chunks = get_chunks(file_path)
+                
+                for i, chunk in enumerate(chunks):
                     chunk_id = f"{filename}_chunk_{i:04d}"
                     chunks.append(chunk)
                     ids.append(chunk_id)

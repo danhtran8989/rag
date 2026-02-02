@@ -30,3 +30,4 @@ def chunk_text(text: str, chunk_size: int, overlap: int) -> List[str]:
     chunks = text_splitter.split_text(text)
 
     return chunks
+
