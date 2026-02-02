@@ -4,8 +4,22 @@ chroma:
   hnsw_space: "cosine"
 
 chunking:
+  # chunk_type: "static"
   chunk_size: 2048 # 6000
   chunk_overlap: 512 # 1200
+  # chunk_type: "section-based"  # options: static, section-based
+  #   max_level_tag : 4
+
+chunking:
+  strategy: "static"           # or "section-based"
+
+  static:
+    chunk_size: 2048
+    chunk_overlap: 512
+
+  section_based:
+    max_level_tag: 4
+    # min_length: 200
 
 retrieval:
   default_k: 1
