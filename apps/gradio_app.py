@@ -160,8 +160,8 @@ def update_status(files):
 
 
 def create_demo():
-    with gr.Blocks(css=custom_css, theme=gr.themes.Soft(), title="RAG Chatbot Pro") as demo:
-        gr.HTML("<h1 style='text-align: center;'>RAG Chatbot Pro</h1>")
+    with gr.Blocks(css=custom_css, theme=gr.themes.Soft(), title="RAG Chatbot") as demo:
+        gr.HTML("<h1 style='text-align: center;'>RAG Chatbot</h1>")
 
         with gr.Row():
             with gr.Column(scale=1):
