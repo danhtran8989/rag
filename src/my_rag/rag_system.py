@@ -65,7 +65,7 @@ class RAGSystem:
         cpu_device = "cpu"
         if embedding_model_name != self.current_embedding_model or self.embedding_fn is None:
             print(f"Loading new embedding model: {embedding_model_name}")
-            self.embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
+            self.embedding_fn = SentenceTransformer(
                 model_name=embedding_model_name,
                 device=cpu_device,
                 normalize_embeddings=True,
