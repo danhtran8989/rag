@@ -68,7 +68,7 @@ class RAGSystem:
             self.embedding_fn = SentenceTransformer(
                 model_name_or_path=embedding_model_name,   # or just embedding_model_name
                 device=cpu_device,
-                normalize_embeddings=True,
+                # normalize_embeddings=True,
                 trust_remote_code=True,
                 # model_name=embedding_model_name,
                 # device=cpu_device,
