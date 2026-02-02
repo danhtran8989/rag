@@ -1,7 +1,7 @@
 # src/my_rag/rag_system.py
 import torch
-# from chromadb.utils import embedding_functions
-from sentence_transformers import SentenceTransformer
+from chromadb.utils import embedding_functions
+# from sentence_transformers import SentenceTransformer
 from typing import List, Tuple, Generator, Dict, Optional
 import hashlib
 import os
@@ -65,15 +65,15 @@ class RAGSystem:
         cpu_device = "cpu"
         if embedding_model_name != self.current_embedding_model or self.embedding_fn is None:
             print(f"Loading new embedding model: {embedding_model_name}")
-            self.embedding_fn = SentenceTransformer(
-                model_name_or_path=embedding_model_name,   # or just embedding_model_name
-                device=cpu_device,
-                # normalize_embeddings=True,
-                trust_remote_code=True,
-                # model_name=embedding_model_name,
+            self.embedding_fn = embedding_functions.SentenceTransformer(
+                # model_name_or_path=embedding_model_name,   # or just embedding_model_name
                 # device=cpu_device,
-                # normalize_embeddings=True,
-                # trust_remote_code=True
+                # # normalize_embeddings=True,
+                # trust_remote_code=True,
+                model_name=embedding_model_name,
+                device=cpu_device,
+                normalize_embeddings=True,
+                trust_remote_code=True
             )
             self.current_embedding_model = embedding_model_name
         return self.embedding_fn
