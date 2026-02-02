@@ -66,10 +66,14 @@ class RAGSystem:
         if embedding_model_name != self.current_embedding_model or self.embedding_fn is None:
             print(f"Loading new embedding model: {embedding_model_name}")
             self.embedding_fn = SentenceTransformer(
-                model_name=embedding_model_name,
+                model_name_or_path=embedding_model_name,   # or just embedding_model_name
                 device=cpu_device,
                 normalize_embeddings=True,
-                trust_remote_code=True
+                trust_remote_code=True,
+                # model_name=embedding_model_name,
+                # device=cpu_device,
+                # normalize_embeddings=True,
+                # trust_remote_code=True
             )
             self.current_embedding_model = embedding_model_name
         return self.embedding_fn
