@@ -25,4 +25,5 @@ psycopg2-binary        # or asyncpg + sqlalchemy for PGVector
 langchain              # only if using PGVector via LangChain
 langchain-core
 langchain-community
-langchain-postgres
+# langchain-postgres
+langchain-text-splitters
