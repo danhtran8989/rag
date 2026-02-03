@@ -72,7 +72,7 @@ class RAGSystem:
                 # trust_remote_code=True,
                 model_name=embedding_model_name,
                 device=cpu_device,
-                normalize_embeddings=True,
+                # normalize_embeddings=True,
                 trust_remote_code=True
             )
             self.current_embedding_model = embedding_model_name
