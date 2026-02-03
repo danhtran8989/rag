@@ -1,7 +1,8 @@
 # src/my_rag/rag_system.py
 import torch
 # from chromadb.utils import embedding_functions
-from sentence_transformers import SentenceTransformer
+# from sentence_transformers import SentenceTransformer
+from pymilvus.model.dense import SentenceTransformerEmbeddingFunction
 from typing import List, Tuple, Generator, Dict, Optional
 import hashlib
 import os
@@ -76,7 +77,7 @@ class RAGSystem:
             #     trust_remote_code=True
             # )
 
-            self.embedding_fn = SentenceTransformer(
+            self.embedding_fn = SentenceTransformerEmbeddingFunction(
                 model_name_or_path=embedding_model_name,   # or just embedding_model_name
                 device=cpu_device,
                 # # normalize_embeddings=True,
