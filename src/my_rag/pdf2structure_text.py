@@ -549,7 +549,7 @@ def clean_markdown_sections_list(full_tag_md: str):
 
     # Run the split
     sections = split_markdown_to_leaf_sections(input_markdown, 
-                                              max_level_tag="####")
+                                              max_level_tag="#####")
 
     return clean_markdown_sections(sections)
 
