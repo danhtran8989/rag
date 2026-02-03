@@ -9,8 +9,9 @@ default_llm: "gemma3:12b-it-qat"
 
 embedding_models:
   - "Alibaba-NLP/gte-multilingual-base"
+  - "Qwen/Qwen3-Embedding-0.6B"
   - "BAAI/bge-m3"
   - "all-MiniLM-L6-v2"
   - "intfloat/multilingual-e5-base"
 
-default_embedding: "Alibaba-NLP/gte-multilingual-base"
+default_embedding: "Qwen/Qwen3-Embedding-0.6B"
