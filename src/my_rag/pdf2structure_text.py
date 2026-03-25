@@ -557,9 +557,13 @@ def get_chunks(pdf_path: str):
 
     HEADING_RULES = [
         {"prefix": "chương",  "level": 2},
+        {"prefix": "Chương",  "level": 2},
         {"prefix": "mục",     "level": 2},
+        {"prefix": "Mục",     "level": 2},
         {"prefix": "phụ lục", "level": 2},
+        {"prefix": "Phụ lục", "level": 2},
         {"prefix": "điều",    "level": 3},
+        {"prefix": "Điều",    "level": 3},
         {"prefix": "digit",   "level": 5}, # 1., 2. -> H3
     ]
 
